@@ -1,0 +1,52 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: finance_db
+    environment:
+      # Database credentials (must match what the backend expects)
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: supersecretpassword
+      POSTGRES_DB: financedb
+    ports:
+      # Maps port 5432 on your host machine to 5432 in the container
+      - "5432:5432"
+    volumes:
+      # Persistent storage for PostgreSQL data
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Checks if the database is ready before the backend starts
+      test: ["CMD-SHELL", "pg_isready -U postgres -d financedb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    # Looks for a Dockerfile in the ./backend directory
+    build: ./backend
+    container_name: finance_backend
+    ports:
+      # Maps port 8080 on your machine to port 8080 in the Go container
+      - "8080:8080"
+    environment:
+      # Connection string for the Go application
+      DB_URL: postgres://postgres:supersecretpassword@db:5432/financedb?sslmode=disable
+    depends_on:
+      db:
+        # Wait until the database passes its health check
+        condition: service_healthy
+
+  frontend:
+    # Looks for a Dockerfile in the ./frontend directory
+    build: ./frontend
+    container_name: finance_frontend
+    ports:
+      # Exposes the frontend on http://localhost
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  # Named volume for persistent PostgreSQL data
+  pgdata:
