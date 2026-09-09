@@ -1,49 +1,65 @@
-# Go Finance Tracker
+# Finance Tracker
 
-A scalable, containerized Personal Finance Tracker built with a Go backend, React frontend, and PostgreSQL database.
+A self-hosted personal finance tracker. Record expenses, organise by category, and analyse spending — fully containerised, HTTPS out of the box.
 
-## 🏗️ Architecture Overview
-
-This project uses a **Containerized Micro-Monorepo** approach. By using Docker, we ensure the application runs identically on your local machine and in a production cloud environment.
-
-### Project Structure
-- **/backend**: Go API server. Chosen for high concurrency and performance.
-- **/frontend**: React + TypeScript + Vite. Chosen for a fast, responsive UI.
-- **/docker-compose.yml**: Orchestrates the DB, API, and Frontend, ensuring they connect seamlessly on a shared internal network.
+**Stack:** Go · PostgreSQL · React + TypeScript · Docker · Caddy
 
 ---
 
-## 📂 File Documentation
+## Quick Start
 
-### ⚙️ Backend (/backend)
-* **`main.go`**: The heart of the application. Handles API routing, database connection pooling, and business logic for financial reports.
-* **`Dockerfile`**: A multi-stage Docker build that compiles your Go code into a tiny, efficient binary, keeping the container footprint minimal.
-* **`go.mod` / `go.sum`**: Go dependency management files. Used to pin specific versions of libraries (like `lib/pq` for Postgres) to ensure reproducible builds.
+```bash
+git clone https://github.com/your-org/go-finance-tracker.git
+cd go-finance-tracker
+cp .env.example .env        # only change DOMAIN= for production
+./start.sh                  # generates secrets, builds, starts all services
+```
 
-### 🎨 Frontend (/frontend)
-* **`App.tsx`**: The main React component. It manages the application state, handles data fetching, and provides the UI tabs.
-* **`main.tsx`**: Entry point that renders the React app into the DOM.
-* **`package.json`**: Lists all React dependencies (Tailwind, Vite, etc.) and build scripts.
-* **`vite.config.ts`**: Configures the development server. Crucially, it sets up a **Proxy** that redirects API calls from the frontend port (5173) to the backend port (8080) to avoid CORS issues during development.
-* **`nginx.conf`**: A configuration for the Nginx web server used in production. It routes traffic and serves the static React files.
-* **`Dockerfile`**: A two-stage build. First, it builds the React app (npm run build); second, it serves the static files using Nginx.
-
-### 🌐 Infrastructure
-* **`docker-compose.yml`**: The "glue" of the project. It defines three services:
-    1. `db`: A PostgreSQL container with persistent storage (`pgdata`).
-    2. `backend`: Runs the Go API, waits for the DB to be healthy, and connects via internal Docker DNS.
-    3. `frontend`: Runs the Nginx server to serve the React SPA.
+Open **https://localhost** — Caddy handles TLS automatically.
 
 ---
 
-## 🚀 Why this stack?
+## Documentation
 
-1.  **PostgreSQL (`db`)**: Chosen for its ACID compliance, ensuring your financial data is always reliable and accurate.
-2.  **Go Backend**: Provides a robust, type-safe API. It connects to the DB using connection pooling, which is much more performant than opening a new connection for every request.
-3.  **Tailwind CSS**: Used for rapid, responsive UI development without needing to manage hundreds of CSS files.
-4.  **Docker**: Eliminates the "it works on my machine" problem. With one command (`docker-compose up`), the entire stack—database, API, and UI—is ready to work together.
+| Doc | Audience | Contents |
+|-----|----------|----------|
+| [**ARCHITECTURE.md**](docs/ARCHITECTURE.md) | Engineers, tech leads | Why every technology was chosen — Go, PostgreSQL, JWT token design, refresh token revocation, Caddy, Docker, SOLID architecture, full API reference, schema |
+| [**DEVELOPMENT.md**](docs/DEVELOPMENT.md) | Contributors | Clone → run → develop: env setup, DB migrations, adding endpoints, adding views, testing, deploying to production, troubleshooting |
+| [**USER_GUIDE.md**](docs/USER_GUIDE.md) | End users | Registration, login, categories, adding expenses, filtering, dashboard, FAQ |
 
-## 🛠️ How to run
-1. Ensure Docker Desktop is running.
-2. Run `docker-compose up --build`.
-3. Access the app at `http://localhost`.
+---
+
+## Services
+
+```
+Browser → Caddy (443) → Go backend (:8080, internal)
+                    ↘ nginx/React (:80, internal)
+                         ↓
+                     PostgreSQL (:5432, internal)
+```
+
+| Service | Image | Role |
+|---------|-------|------|
+| `caddy` | `caddy:2-alpine` | HTTPS termination, reverse proxy, auto TLS |
+| `backend` | built from `./backend` | REST API, JWT auth, migrations |
+| `frontend` | built from `./frontend` | React SPA served by nginx |
+| `db` | `postgres:15-alpine` | Persistent data store |
+
+---
+
+## Features
+
+- **JWT auth** — 15-minute access tokens + 7-day refresh tokens with rotation
+- **Refresh token revocation** — server-side SHA-256 hash; logout invalidates immediately
+- **Per-user isolation** — all queries filtered by `user_id` from the JWT
+- **Automatic HTTPS** — Caddy + Let's Encrypt; works on localhost too (self-signed)
+- **Schema migrations** — numbered SQL files via `golang-migrate`; safe to re-deploy
+- **Zero hardcoded secrets** — `openssl rand` generates credentials on first run
+
+---
+
+## Resetting
+
+```bash
+./start.sh --reset    # wipes all volumes + secrets, starts fresh
+```

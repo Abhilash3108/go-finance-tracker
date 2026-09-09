@@ -5,29 +5,26 @@ FROM golang:1.21-alpine AS builder
 
 WORKDIR /app
 
-# Copy the go.mod file and fetch dependencies
-COPY go.mod ./
-RUN go mod download
-
-# Copy the rest of the application code
+# Copy everything first so go mod tidy sees all imports
 COPY . .
 
-# Compile the Go application statically
+# Resolve and download modules (runs after source copy so new imports are found)
+RUN go mod tidy && go mod download
+
+# Compile statically — migrations are embedded via //go:embed
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/finance-api
 
 # -----------------------------
 # Final Stage
 # -----------------------------
-# Using a tiny Alpine image for production
-FROM alpine:latest
+FROM alpine:3.19
 
 WORKDIR /root/
 
-# Copy the compiled binary from the builder stage
+# Only the binary is needed — migrations are embedded inside it
 COPY --from=builder /app/finance-api .
 
-# Expose the application port
 EXPOSE 8080
 
-# Run the Go API
 CMD ["./finance-api"]
+

@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# Caddyfile — automatic HTTPS for Finance Tracker
+#
+# In production: set DOMAIN=your-domain.com in .env
+# Locally:       set DOMAIN=localhost — Caddy uses a self-signed cert
+#
+# Caddy auto-obtains and auto-renews Let's Encrypt certs. No manual cert
+# management needed. Port 80 is kept only for the ACME HTTP-01 challenge
+# redirect; all real traffic is on 443.
+# ---------------------------------------------------------------------------
+
+{$DOMAIN} {
+    # --- Reverse proxy: API requests → Go backend ---
+    handle /api/* {
+        reverse_proxy backend:8080
+    }
+
+    # --- Reverse proxy: everything else → React frontend ---
+    handle {
+        reverse_proxy frontend:80
+    }
+
+    # --- Security headers (Caddy layer — supplements nginx headers) ---
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Frame-Options           "DENY"
+        X-Content-Type-Options    "nosniff"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        -Server                    # Remove "Caddy" from Server header
+    }
+
+    # --- Logging ---
+    log {
+        output stdout
+        format json
+    }
+}

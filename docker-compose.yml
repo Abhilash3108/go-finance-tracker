@@ -1,52 +1,70 @@
 version: "3.8"
 
+# Secrets are never stored here.
+# Run with:  ./start.sh
+# Reset:     ./start.sh --reset
+
 services:
   db:
     image: postgres:15-alpine
     container_name: finance_db
     environment:
-      # Database credentials (must match what the backend expects)
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: supersecretpassword
-      POSTGRES_DB: financedb
-    ports:
-      # Maps port 5432 on your host machine to 5432 in the container
-      - "5432:5432"
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
     volumes:
-      # Persistent storage for PostgreSQL data
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      # Checks if the database is ready before the backend starts
-      test: ["CMD-SHELL", "pg_isready -U postgres -d financedb"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   backend:
-    # Looks for a Dockerfile in the ./backend directory
     build: ./backend
     container_name: finance_backend
-    ports:
-      # Maps port 8080 on your machine to port 8080 in the Go container
-      - "8080:8080"
+    # Port not exposed externally — all traffic flows through Caddy.
+    expose:
+      - "8080"
     environment:
-      # Connection string for the Go application
-      DB_URL: postgres://postgres:supersecretpassword@db:5432/financedb?sslmode=disable
+      DB_URL:         ${DB_URL}
+      JWT_SECRET:     ${JWT_SECRET}
+      ALLOWED_ORIGIN: https://${DOMAIN}
     depends_on:
       db:
-        # Wait until the database passes its health check
         condition: service_healthy
+    restart: unless-stopped
 
   frontend:
-    # Looks for a Dockerfile in the ./frontend directory
     build: ./frontend
     container_name: finance_frontend
-    ports:
-      # Exposes the frontend on http://localhost
-      - "80:80"
+    # Port not exposed externally — all traffic flows through Caddy.
+    expose:
+      - "80"
     depends_on:
       - backend
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: finance_caddy
+    ports:
+      - "80:80"    # ACME HTTP-01 challenge + redirect to HTTPS
+      - "443:443"  # HTTPS
+      - "443:443/udp"  # HTTP/3 (QUIC)
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data          # TLS certificates (persisted across restarts)
+      - caddy_config:/config      # Caddy config cache
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
 
 volumes:
-  # Named volume for persistent PostgreSQL data
   pgdata:
+  caddy_data:    # Persists Let's Encrypt certs — never wipe this in production
+  caddy_config:
