@@ -9,13 +9,12 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# Copy all source files and build the application
-COPY . .
-
-# VITE_API_URL is baked into the JS bundle at build time.
-# Railway passes it as a build-time variable via the dashboard.
+# Declare ARG before COPY so Docker cache is invalidated when the value changes
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
+
+# Copy all source files and build the application
+COPY . .
 
 RUN npm run build
 
