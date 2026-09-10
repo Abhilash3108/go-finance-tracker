@@ -4,6 +4,10 @@
 const ACCESS_KEY  = 'finance_access_token';
 const REFRESH_KEY = 'finance_refresh_token';
 
+// In production (Railway), VITE_API_URL points to the backend service URL.
+// Locally, it is unset and all paths are relative (Caddy proxies /api → backend).
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
+
 // ---------------------------------------------------------------------------
 // Token Storage
 // ---------------------------------------------------------------------------
@@ -69,7 +73,7 @@ export async function attemptRefresh(): Promise<string | null> {
         return null;
     }
     try {
-        const res = await fetch('/api/auth/refresh', {
+        const res = await fetch(`${API_BASE}/api/auth/refresh`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refreshToken }),
@@ -90,7 +94,7 @@ export async function attemptRefresh(): Promise<string | null> {
 // ---------------------------------------------------------------------------
 
 function fetchWithToken(path: string, options: RequestInit, token: string | null): Promise<Response> {
-    return fetch(path, {
+    return fetch(`${API_BASE}${path}`, {
         ...options,
         headers: {
             'Content-Type': 'application/json',
