@@ -37,11 +37,19 @@ export interface ExpenseActions {
 
 /** Actions available to the Categories view. */
 export interface CategoryActions {
-    addCategory:    (name: string)       => Promise<boolean>;
-    deleteCategories: (ids: number[])    => Promise<void>;
+    addCategory:      (name: string)                  => Promise<boolean>;
+    updateCategory:   (id: number, name: string)      => Promise<boolean>;
+    deleteCategories: (ids: number[])                 => Promise<void>;
+}
+
+export interface UpdateExpensePayload {
+    amount: number;
+    description: string;
+    categoryId: number;
 }
 
 /** Actions available to the ExpenseViewer view. */
 export interface ExpenseViewerActions {
+    updateExpense:  (id: number, payload: UpdateExpensePayload) => Promise<boolean>;
     deleteExpenses: (ids: number[]) => Promise<void>;
 }

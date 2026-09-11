@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type {
     User, Expense, Category, CategoryPercentage, TabName,
-    ExpenseActions, CategoryActions, ExpenseViewerActions, NewExpense,
+    ExpenseActions, CategoryActions, ExpenseViewerActions, NewExpense, UpdateExpensePayload,
 } from './types';
 import { TABS } from './types';
 import { apiFetch } from './api';
@@ -60,6 +60,13 @@ export default function Dashboard({ user, onLogout }: Props) {
             });
             return res.ok;
         },
+        updateCategory: async (id: number, name: string) => {
+            const res = await apiFetch(`/api/categories?id=${id}`, {
+                method: 'PUT',
+                body: JSON.stringify({ name }),
+            });
+            return res.ok;
+        },
         deleteCategories: async (ids: number[]) => {
             await Promise.all(
                 ids.map(id => apiFetch(`/api/categories/delete?id=${id}`, { method: 'DELETE' })),
@@ -68,6 +75,13 @@ export default function Dashboard({ user, onLogout }: Props) {
     };
 
     const expenseViewerActions: ExpenseViewerActions = {
+        updateExpense: async (id: number, payload: UpdateExpensePayload) => {
+            const res = await apiFetch(`/api/expenses?id=${id}`, {
+                method: 'PUT',
+                body: JSON.stringify(payload),
+            });
+            return res.ok;
+        },
         deleteExpenses: async (ids: number[]) => {
             await Promise.all(
                 ids.map(id => apiFetch(`/api/expenses/delete?id=${id}`, { method: 'DELETE' })),

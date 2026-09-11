@@ -1,7 +1,7 @@
 #!/bin/sh
 # Railway sets PORT at runtime; default to 80 for local docker builds.
-PORT=${PORT:-80}
-BACKEND_URL=${BACKEND_URL:-http://localhost:8080}
+export PORT=${PORT:-80}
+export BACKEND_URL=${BACKEND_URL:-http://localhost:8080}
 
 # Swap nginx listen port
 sed -i "s/listen 80;/listen $PORT;/" /etc/nginx/conf.d/default.conf

@@ -173,6 +173,50 @@ func createExpense(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, exp, http.StatusCreated)
 }
 
+func updateExpense(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "id query parameter is required", http.StatusBadRequest)
+		return
+	}
+	http.MaxBytesReader(w, r.Body, 1<<20)
+	var payload struct {
+		Amount      float64 `json:"amount"`
+		Description string  `json:"description"`
+		CategoryID  int     `json:"categoryId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if payload.Amount <= 0 {
+		http.Error(w, "Amount must be greater than zero", http.StatusBadRequest)
+		return
+	}
+	if payload.CategoryID == 0 {
+		http.Error(w, "CategoryID is required", http.StatusBadRequest)
+		return
+	}
+	userID := userIDFromContext(r)
+	var exp Expense
+	err := db.QueryRow(
+		`UPDATE expenses
+		    SET amount = $1, description = $2, category_id = $3
+		  WHERE id = $4 AND user_id = $5
+		  RETURNING id, amount, description, category_id`,
+		payload.Amount, payload.Description, payload.CategoryID, id, userID,
+	).Scan(&exp.ID, &exp.Amount, &exp.Description, &exp.CategoryID)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "Expense not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to update expense", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, exp, http.StatusOK)
+}
+
 // ---------------------------------------------------------------------------
 // Handlers: Deletion
 // ---------------------------------------------------------------------------
@@ -336,15 +380,56 @@ func getCategoryPercentage(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, res, http.StatusOK)
 }
 
+func updateCategory(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "id query parameter is required", http.StatusBadRequest)
+		return
+	}
+	http.MaxBytesReader(w, r.Body, 1<<20)
+	var payload struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	payload.Name = strings.TrimSpace(payload.Name)
+	if payload.Name == "" {
+		http.Error(w, "Category name is required", http.StatusBadRequest)
+		return
+	}
+	userID := userIDFromContext(r)
+	var cat Category
+	err := db.QueryRow(
+		"UPDATE categories SET name = $1 WHERE id = $2 AND user_id = $3 RETURNING id, name",
+		payload.Name, id, userID,
+	).Scan(&cat.ID, &cat.Name)
+	if err != nil {
+		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
+			http.Error(w, "Category name already exists", http.StatusConflict)
+			return
+		}
+		if strings.Contains(err.Error(), "no rows") {
+			http.Error(w, "Category not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to update category", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, cat, http.StatusOK)
+}
+
 // ---------------------------------------------------------------------------
 // Route Dispatchers
 // ---------------------------------------------------------------------------
 
 func handleCategories(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
-	case http.MethodGet:  getCategories(w, r)
-	case http.MethodPost: createCategory(w, r)
-	default:              http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	case http.MethodGet:   getCategories(w, r)
+	case http.MethodPost:  createCategory(w, r)
+	case http.MethodPut:   updateCategory(w, r)
+	default:               http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -352,6 +437,7 @@ func handleExpenses(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:  getExpenses(w, r)
 	case http.MethodPost: createExpense(w, r)
+	case http.MethodPut:  updateExpense(w, r)
 	default:              http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
 }
