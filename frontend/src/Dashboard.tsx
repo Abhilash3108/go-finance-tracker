@@ -1,126 +1,159 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo, useEffect } from 'react';
 import type {
-    User, Expense, Category, CategoryPercentage, TabName,
-    ExpenseActions, CategoryActions, ExpenseViewerActions, NewExpense, UpdateExpensePayload,
+    User, TabName,
+    ExpenseActions, CategoryActions, ExpenseViewerActions,
+    NewExpense, UpdateExpensePayload,
 } from './types';
 import { TABS } from './types';
 import { apiFetch } from './api';
+import { useExpenseData } from './hooks/useExpenseData';
 import AddExpense    from './views/AddExpense';
 import Categories    from './views/Categories';
 import ExpenseViewer from './views/ExpenseViewer';
 import DashboardView from './views/DashboardView';
+import { useState } from 'react';
 
 interface Props {
-    user: User;
+    user:     User;
     onLogout: () => void;
 }
 
-export default function Dashboard({ user, onLogout }: Props) {
-    const [activeTab,           setActiveTab]           = useState<TabName>('dashboard');
-    const [expenses,            setExpenses]            = useState<Expense[]>([]);
-    const [categories,          setCategories]          = useState<Category[]>([]);
-    const [categoryPercentData, setCategoryPercentData] = useState<CategoryPercentage[]>([]);
+const TAB_ICONS: Record<TabName, string> = {
+    dashboard:  '📊',
+    add:        '➕',
+    categories: '🏷️',
+    viewer:     '📋',
+};
 
-    const fetchData = useCallback(async () => {
-        try {
-            const [expRes, catRes, pctRes] = await Promise.all([
-                apiFetch('/api/expenses'),
-                apiFetch('/api/categories'),
-                apiFetch('/api/expenses/category-percentage'),
-            ]);
-            if (expRes.ok) setExpenses(await expRes.json());
-            if (catRes.ok) setCategories(await catRes.json());
-            if (pctRes.ok) setCategoryPercentData(await pctRes.json());
-        } catch (err) {
-            console.error('Fetch error:', err);
-        }
-    }, []);
+const TAB_LABELS: Record<TabName, string> = {
+    dashboard:  'Overview',
+    add:        'New Expense',
+    categories: 'Categories',
+    viewer:     'My Expenses',
+};
+
+// ---------------------------------------------------------------------------
+// Static style constants
+// ---------------------------------------------------------------------------
+
+const STYLES = {
+    root:      { background: '#0f1117' } as React.CSSProperties,
+    nav:       { background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.07)', backdropFilter: 'blur(12px)' } as React.CSSProperties,
+    logoMark:  { background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' } as React.CSSProperties,
+    userBadge: { background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.25)' } as React.CSSProperties,
+    signOut:   { background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' } as React.CSSProperties,
+    signOutHover: { background: 'rgba(239,68,68,0.22)' } as React.CSSProperties,
+    signOutLeave: { background: 'rgba(239,68,68,0.12)' } as React.CSSProperties,
+    tabBar:    { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' } as React.CSSProperties,
+    tabActive: { background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', boxShadow: '0 4px 16px rgba(99,102,241,0.35)' } as React.CSSProperties,
+    tabInactive: { color: 'rgba(255,255,255,0.4)', background: 'transparent' } as React.CSSProperties,
+    panel:     { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' } as React.CSSProperties,
+} as const;
+
+export default function Dashboard({ user, onLogout }: Props) {
+    const [activeTab, setActiveTab] = useState<TabName>('dashboard');
+    const { expenses, categories, availableYears, fetchData, fetchCategoryPercent, fetchMonthlyTrend } = useExpenseData();
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
     // ---------------------------------------------------------------------------
-    // Action implementations — injected into views so they stay network-free.
+    // Action objects — memoised so child components never see stale references
+    // and React.memo'd children don't re-render on every Dashboard render.
     // ---------------------------------------------------------------------------
 
-    const expenseActions: ExpenseActions = {
+    const expenseActions = useMemo<ExpenseActions>(() => ({
         addExpense: async (payload: NewExpense) => {
-            const res = await apiFetch('/api/expenses', {
-                method: 'POST',
-                body: JSON.stringify(payload),
-            });
+            const res = await apiFetch('/api/expenses', { method: 'POST', body: JSON.stringify(payload) });
             return res.ok;
         },
-    };
+    }), []);
 
-    const categoryActions: CategoryActions = {
+    const categoryActions = useMemo<CategoryActions>(() => ({
         addCategory: async (name: string) => {
-            const res = await apiFetch('/api/categories', {
-                method: 'POST',
-                body: JSON.stringify({ name }),
-            });
+            const res = await apiFetch('/api/categories', { method: 'POST', body: JSON.stringify({ name }) });
             return res.ok;
         },
         updateCategory: async (id: number, name: string) => {
-            const res = await apiFetch(`/api/categories?id=${id}`, {
-                method: 'PUT',
-                body: JSON.stringify({ name }),
-            });
+            const res = await apiFetch(`/api/categories?id=${id}`, { method: 'PUT', body: JSON.stringify({ name }) });
             return res.ok;
         },
         deleteCategories: async (ids: number[]) => {
-            // Single request with all ids: DELETE /api/categories/delete?id=1&id=2&id=3
             const params = ids.map(id => `id=${id}`).join('&');
             await apiFetch(`/api/categories/delete?${params}`, { method: 'DELETE' });
         },
-    };
+    }), []);
 
-    const expenseViewerActions: ExpenseViewerActions = {
+    const expenseViewerActions = useMemo<ExpenseViewerActions>(() => ({
         updateExpense: async (id: number, payload: UpdateExpensePayload) => {
-            const res = await apiFetch(`/api/expenses?id=${id}`, {
-                method: 'PUT',
-                body: JSON.stringify(payload),
-            });
+            const res = await apiFetch(`/api/expenses?id=${id}`, { method: 'PUT', body: JSON.stringify(payload) });
             return res.ok;
         },
         deleteExpenses: async (ids: number[]) => {
-            // Single request with all ids: DELETE /api/expenses/delete?id=1&id=2&id=3
             const params = ids.map(id => `id=${id}`).join('&');
             await apiFetch(`/api/expenses/delete?${params}`, { method: 'DELETE' });
         },
-    };
+    }), []);
 
     return (
-        <div className="min-h-screen bg-gray-100 p-8">
-            <div className="max-w-7xl mx-auto">
+        <div className="min-h-screen" style={STYLES.root}>
 
-                <header className="mb-10 flex justify-between items-center">
-                    <h1 className="text-4xl font-black text-gray-800">Finance Tracker</h1>
-                    <div className="flex items-center gap-4">
-                        <span className="text-sm text-gray-500">{user.email}</span>
-                        <button onClick={onLogout}
-                            className="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-bold transition">
-                            Sign Out
-                        </button>
+            {/* Top nav */}
+            <header className="sticky top-0 z-20 px-4 sm:px-6 py-4 flex justify-between items-center" style={STYLES.nav}>
+                <div className="flex items-center gap-3">
+                    <div
+                        className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-black text-white"
+                        style={STYLES.logoMark}
+                    >
+                        ₹
                     </div>
-                </header>
-
-                <div className="flex gap-2 mb-8 bg-white p-1 rounded-xl shadow-sm inline-block">
-                    {TABS.map(tab => (
-                        <button key={tab} onClick={() => setActiveTab(tab)}
-                            className={`px-6 py-2 rounded-lg font-bold capitalize transition ${
-                                activeTab === tab ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-                            }`}>
-                            {tab}
-                        </button>
-                    ))}
+                    <span className="font-black text-white text-lg tracking-tight">Finance Tracker</span>
                 </div>
+                <div className="flex items-center gap-3">
+                    <span className="hidden sm:inline text-xs px-3 py-1.5 rounded-full font-medium" style={STYLES.userBadge}>
+                        {user.email}
+                    </span>
+                    <button
+                        onClick={onLogout}
+                        className="text-xs font-bold px-4 py-2 rounded-xl transition-all"
+                        style={STYLES.signOut}
+                        onMouseEnter={e => Object.assign((e.currentTarget as HTMLButtonElement).style, STYLES.signOutHover)}
+                        onMouseLeave={e => Object.assign((e.currentTarget as HTMLButtonElement).style, STYLES.signOutLeave)}
+                    >
+                        Sign Out
+                    </button>
+                </div>
+            </header>
 
-                <main className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
-                    {activeTab === 'add'        && <AddExpense    categories={categories} actions={expenseActions}        onSaved={fetchData} />}
-                    {activeTab === 'categories' && <Categories    categories={categories} actions={categoryActions}        onChanged={fetchData} />}
-                    {activeTab === 'viewer'     && <ExpenseViewer expenses={expenses} categories={categories} actions={expenseViewerActions} onChanged={fetchData} />}
-                    {activeTab === 'dashboard'  && <DashboardView categories={categories} categoryPercentData={categoryPercentData} />}
-                </main>
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+
+                {/* Tab bar — overflow-x-auto prevents clipping on narrow screens */}
+                <nav
+                    className="flex gap-1 mb-6 sm:mb-8 p-1 rounded-2xl w-fit max-w-full overflow-x-auto"
+                    style={STYLES.tabBar}
+                >
+                    {TABS.map(tab => {
+                        const active = activeTab === tab;
+                        return (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                className="flex items-center gap-1.5 px-3 py-2 sm:px-5 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap"
+                                style={active ? STYLES.tabActive : STYLES.tabInactive}
+                            >
+                                <span>{TAB_ICONS[tab]}</span>
+                                {TAB_LABELS[tab]}
+                            </button>
+                        );
+                    })}
+                </nav>
+
+                {/* Main panel */}
+                <div className="rounded-2xl p-4 sm:p-8" style={STYLES.panel}>
+                    {activeTab === 'add'        && <AddExpense    categories={categories} actions={expenseActions}           onSaved={fetchData} />}
+                    {activeTab === 'categories' && <Categories    categories={categories} actions={categoryActions}           onChanged={fetchData} />}
+                    {activeTab === 'viewer'     && <ExpenseViewer expenses={expenses}     categories={categories} actions={expenseViewerActions} onChanged={fetchData} />}
+                    {activeTab === 'dashboard'  && <DashboardView categories={categories} availableYears={availableYears} fetchCategoryPercent={fetchCategoryPercent} fetchMonthlyTrend={fetchMonthlyTrend} />}
+                </div>
 
             </div>
         </div>

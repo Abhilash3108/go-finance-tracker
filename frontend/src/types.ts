@@ -12,12 +12,17 @@ export interface Expense {
 }
 export interface CategoryPercentage {
     categoryName: string;
+    totalAmount:  number;
+    percentage:   number;
+}
+
+export interface MonthlySummary {
+    month:       string;   // "YYYY-MM-DD" (first day of month from date_trunc)
     totalAmount: number;
-    percentage: number;
 }
 
 export type TabName = 'add' | 'categories' | 'viewer' | 'dashboard';
-export const TABS: TabName[] = ['add', 'categories', 'viewer', 'dashboard'];
+export const TABS: TabName[] = ['dashboard', 'add', 'categories', 'viewer'];
 
 // ---------------------------------------------------------------------------
 // Action interfaces — typed contracts injected into views from Dashboard.

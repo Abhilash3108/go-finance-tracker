@@ -293,11 +293,15 @@ func deleteCategory(w http.ResponseWriter, r *http.Request) {
 
 func getMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromContext(r)
-	rows, err := db.Query(
-		"SELECT date_trunc('month', created_at)::date AS month, SUM(amount) AS total"+
-			" FROM expenses WHERE user_id = $1 GROUP BY month ORDER BY month DESC",
-		userID,
+	filterClause, filterArgs := buildFilter(r, "e", 2)
+	args := append([]interface{}{userID}, filterArgs...)
+
+	query := fmt.Sprintf(
+		"SELECT date_trunc('month', e.created_at)::date AS month, SUM(e.amount) AS total"+
+			" FROM expenses e WHERE e.user_id = $1%s GROUP BY month ORDER BY month ASC",
+		filterClause,
 	)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -334,12 +338,16 @@ func getTotalExpenses(w http.ResponseWriter, r *http.Request) {
 
 func getCategoryTotals(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromContext(r)
-	rows, err := db.Query(
+	filterClause, filterArgs := buildFilter(r, "e", 2)
+	args := append([]interface{}{userID}, filterArgs...)
+
+	query := fmt.Sprintf(
 		"SELECT c.name, SUM(e.amount) AS total"+
 			" FROM expenses e JOIN categories c ON e.category_id = c.id"+
-			" WHERE e.user_id = $1 GROUP BY c.name",
-		userID,
+			" WHERE e.user_id = $1%s GROUP BY c.name ORDER BY total DESC",
+		filterClause,
 	)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

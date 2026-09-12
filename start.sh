@@ -52,14 +52,14 @@ echo "    ALLOWED_ORIGIN → ${ALLOWED_ORIGIN}"
 echo "    DB_URL         → derived (not stored)"
 echo ""
 
-# --- Force a clean rebuild of the backend every time ---
-# --no-cache ensures go mod tidy + go build always run fresh,
-# preventing stale cached layers from serving an old binary.
+# --- Force a clean rebuild of backend and frontend every time ---
+# --no-cache ensures source file changes are always picked up;
+# without it Docker can serve a stale COPY layer even after edits.
 DB_URL="$DB_URL" \
 ALLOWED_ORIGIN="$ALLOWED_ORIGIN" \
-docker compose -f "$SCRIPT_DIR/docker-compose.yml" build --no-cache backend
+docker compose -f "$SCRIPT_DIR/docker-compose.yml" build --no-cache backend frontend
 
-# --- Start all services (frontend + db + caddy use normal cache) ---
+# --- Start all services ---
 DB_URL="$DB_URL" \
 ALLOWED_ORIGIN="$ALLOWED_ORIGIN" \
 docker compose -f "$SCRIPT_DIR/docker-compose.yml" up --build "$@"

@@ -3,10 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Go Finance Tracker</title>
+    <title>Finance Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Prevent white flash before React mounts */
+      html, body { background: #0f1117; margin: 0; }
+
+      /* Custom scrollbar for dark theme */
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+      ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 99px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+      /* Native select dark styling */
+      select option { background: #1e1f2e; color: #fff; }
+
+      /* Smooth transitions globally */
+      * { box-sizing: border-box; }
+    </style>
   </head>
-  <body class="bg-gray-50 text-gray-900 font-sans antialiased">
+  <body class="antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
