@@ -19,30 +19,30 @@
 11. [nginx — Frontend Static Server](#nginx--frontend-static-server)
 12. [Secret Management](#secret-management)
 13. [SOLID Architecture in the Frontend](#solid-architecture-in-the-frontend)
-14. [API Design](#api-design)
+14. [API Reference](#api-reference)
 15. [Database Schema](#database-schema)
-16. [Data Flow Diagram](#data-flow-diagram)
+16. [Data Flow Diagrams](#data-flow-diagrams)
 
 ---
 
 ## System Overview
 
-Finance Tracker is a self-hosted personal finance application. It is a four-service system:
+Finance Tracker is a four-service Docker Compose application:
 
 ```
 Browser
   │
   ▼
-Caddy (443 / HTTPS)          ← only public-facing port
-  ├── /api/*  ──────────────► Go Backend (:8080, internal)
-  │                               │
-  │                               ▼
-  │                           PostgreSQL (:5432, internal)
+Caddy (:443 / :80)          ← only public-facing ports
+  ├── /api/*  ─────────────► Go Backend (:8080, internal)
+  │                              │
+  │                              ▼
+  │                          PostgreSQL (:5432, internal)
   │
-  └── /*  ───────────────────► nginx serving React SPA (:80, internal)
+  └── /*  ────────────────────► nginx + React SPA (:80, internal)
 ```
 
-Only Caddy is exposed to the internet. Backend and frontend ports are Docker-internal (`expose`, not `ports`), so they are unreachable directly.
+Only Caddy exposes host ports (`80` and `443`). Backend (`:8080`) and frontend (`:80`) use Docker `expose`—they are reachable only within the compose network, never directly from the internet.
 
 ---
 
@@ -54,27 +54,42 @@ Only Caddy is exposed to the internet. Backend and frontend ports are Docker-int
 
 | Concern | Decision |
 |---------|----------|
-| Performance | Go compiles to a single static binary. Cold start in ~5 ms. The standard library HTTP server handles thousands of concurrent requests on minimal RAM — no separate application server (Gunicorn, uWSGI, Puma) needed. |
-| Simplicity | The `net/http` package covers all routing needs for this API surface. No framework overhead, no dependency tree sprawl. |
-| Type safety | Go's static types catch entire classes of bugs at compile time rather than at runtime. |
-| Deployment | The binary + a minimal `alpine` base image produces a ~15 MB Docker image. |
-| Concurrency | Goroutines and the net/http per-request handler model handle I/O-bound database calls without blocking. |
+| Performance | Compiles to a single static binary. Cold start ~5 ms. Standard `net/http` handles thousands of concurrent connections with minimal RAM—no separate app server needed. |
+| Simplicity | `net/http` covers all routing needs. No framework, no middleware dependency tree. |
+| Type safety | Static types catch entire classes of bugs at compile time rather than at runtime. |
+| Deployment | Binary + `alpine` base image → ~15 MB Docker image vs ~800 MB on `golang:1.21`. |
+| Concurrency | Goroutines and `net/http`'s per-request handler model handle I/O-bound DB calls without blocking threads. |
 
-**Why not Node / Python / Java:**
-- Node (Express): JavaScript's dynamic typing shifts bugs to runtime. Needs a process manager.
-- Python (FastAPI/Django): Good ergonomics but ~3–5× more RAM for equivalent throughput.
-- Java (Spring): Excellent but 300 MB+ JVM startup, large images, significant configuration.
-
-**Dependencies (go.mod):**
+**Dependencies (`go.mod`):**
 
 ```
-github.com/golang-jwt/jwt/v5     v5.2.1   — JWT signing/parsing
-github.com/golang-migrate/migrate/v4 v4.17.1 — SQL migration runner
-github.com/lib/pq                v1.10.9  — PostgreSQL driver
-golang.org/x/crypto              v0.22.0  — bcrypt password hashing
+github.com/golang-jwt/jwt/v5         v5.2.1   — JWT signing and parsing
+github.com/golang-migrate/migrate/v4  v4.17.1  — SQL migration runner (iofs source)
+github.com/lib/pq                     v1.10.9  — PostgreSQL driver
+golang.org/x/crypto                   v0.22.0  — bcrypt password hashing
 ```
 
-All are minimal, well-maintained libraries. The entire dependency tree is 7 packages — trivially auditable.
+The entire transitive dependency tree is 7 packages — trivially auditable. Three indirect dependencies (`hashicorp/errwrap`, `hashicorp/go-multierror`, `go.uber.org/atomic`) are pulled in by `golang-migrate`.
+
+**Multi-stage Dockerfile:**
+
+```dockerfile
+# Stage 1 — compile
+FROM golang:1.21-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN go build -o server .
+
+# Stage 2 — minimal runtime
+FROM alpine:3.19
+COPY --from=builder /app/server .
+COPY migrations/ ./migrations/
+CMD ["./server"]
+```
+
+The final image contains only the compiled binary and the embedded migration SQL files.
 
 ---
 
@@ -86,215 +101,257 @@ All are minimal, well-maintained libraries. The entire dependency tree is 7 pack
 
 | Concern | Decision |
 |---------|----------|
-| Data integrity | Foreign keys with `ON DELETE CASCADE` / `ON DELETE RESTRICT` enforce referential integrity at the DB level — not just in application code. |
-| Numeric precision | `NUMERIC(12,2)` for `amount` avoids floating-point rounding errors that plague `FLOAT` or JavaScript numbers when dealing with money. |
-| Timestamps | `TIMESTAMPTZ` stores timestamps with timezone offset. Queries across timezones stay correct without application-level conversion. |
-| Constraints | `CHECK (amount > 0)` on expenses, `UNIQUE (name, user_id)` on categories — the DB enforces invariants even if application code has a bug. |
-| ACID | Full transactional guarantees. A partial write never leaves the database in an inconsistent state. |
-| Production-grade | PostgreSQL handles concurrency, vacuuming, WAL, and replication — the same engine used at companies running billions of rows. |
+| Numeric precision | `NUMERIC(12,2)` for `amount` avoids floating-point rounding errors inherent in `FLOAT`. |
+| Data integrity | Foreign keys (`ON DELETE CASCADE` / `ON DELETE RESTRICT`) and `CHECK (amount > 0)` enforce correctness at the DB level, not just the application layer. |
+| Uniqueness | `UNIQUE (name, user_id)` on categories prevents duplicate category names per user. |
+| Timestamps | `TIMESTAMPTZ` stores timestamps with timezone, ensuring consistent ordering across locales. |
+| ACID | Full transactional guarantees. |
+| Concurrency | PostgreSQL handles concurrent connections properly; SQLite is single-writer and hits write contention under load. |
 
-**Why not SQLite:**
-SQLite is single-writer. As soon as two requests hit simultaneously — which happens on every page load with the parallel `Promise.all` in `Dashboard.tsx` — you get write contention. PostgreSQL handles concurrent connections properly.
+**Why not SQLite:** Write contention under concurrent requests makes it unsuitable for a networked API.
 
-**Why not MySQL/MariaDB:**
-PostgreSQL's `TIMESTAMPTZ`, partial indexes, and `RETURNING` clause (used in all `INSERT` statements to get the new row ID in one round-trip) are cleaner than MySQL equivalents.
+**Why not MySQL/MariaDB:** PostgreSQL's `TIMESTAMPTZ`, partial indexes, and `RETURNING` clause are cleaner than MySQL equivalents.
 
 ---
 
 ## golang-migrate — Schema Management
 
-**Choice:** `golang-migrate/migrate/v4` with numbered `*.sql` files.
+**Choice:** `golang-migrate/migrate/v4` with numbered `*.up.sql` files embedded via Go's `//go:embed` directive.
+
+Migration files are embedded directly into the compiled binary:
+
+```go
+//go:embed migrations
+var migrationsFS embed.FS
+```
+
+This means no external file mounting is needed in Docker—the binary is self-contained.
 
 **Why numbered migrations instead of `CREATE TABLE IF NOT EXISTS` in `main.go`:**
 
-| Problem with inline SQL | Solution |
-|------------------------|----------|
-| No history — you can't tell what changed between deploys | Each migration file is a permanent, ordered record of every schema change |
-| Can't safely alter a production table | `ALTER TABLE` in migration 002 ran once on the live DB and never again |
-| Can't roll back | Migrations can have `.up.sql` and `.down.sql` pairs |
-| Can't collaborate | Team members apply the same numbered files in the same order |
+| Problem with inline SQL | Solution with migrations |
+|------------------------|--------------------------|
+| No history | Each file is a permanent, ordered record of every schema change |
+| Can't safely alter a live table | `ALTER TABLE` in migration 002 runs once on the live DB and never again |
+| No rollback path | Paired `.up.sql` / `.down.sql` files support reversals |
+| Collaboration risk | Team members apply the same numbered files in the same order |
+
+`golang-migrate` tracks applied versions in a `schema_migrations` table it manages automatically.
 
 **Migration files:**
 
 ```
 backend/migrations/
-├── 001_init.sql          — initial schema: users, categories, expenses
-└── 002_refresh_token.sql — adds refresh_token_hash + refresh_token_exp to users
+├── 001_init.up.sql          — users, categories, expenses tables + indexes
+└── 002_refresh_token.up.sql — adds refresh_token_hash + refresh_token_exp to users
 ```
 
-`golang-migrate` tracks which migrations have run in a `schema_migrations` table it manages automatically. Running `initDB()` on startup is idempotent — it applies any pending migrations and skips already-applied ones.
+At startup, `db.go` calls `m.Up()` which is a no-op if all migrations have already run.
 
 ---
 
 ## JWT Authentication — Access & Refresh Tokens
 
-**Why JWT over sessions:**
-Sessions require server-side storage (Redis, DB table) that must be replicated across instances. JWTs are stateless — any backend instance can validate a token by verifying the HMAC signature with the shared `JWT_SECRET`. This matters for horizontal scaling.
+**Why JWT over sessions:** Sessions require server-side storage that must be replicated across instances. JWTs are stateless—any backend instance can validate a token by verifying the HMAC signature with the shared `JWT_SECRET`.
 
 **Two-token design:**
 
-| Token | TTL | Purpose |
-|-------|-----|---------|
-| Access token | **15 minutes** | Sent in `Authorization: Bearer` header on every API call. Short TTL limits the window if intercepted. |
-| Refresh token | **7 days** | Sent only to `/api/auth/refresh`. Exchanges for a new token pair without re-entering a password. |
+| Token | TTL | Transport | Purpose |
+|-------|-----|-----------|---------|
+| Access token | **15 minutes** | `Authorization: Bearer <token>` on every API call | Short TTL limits exposure window if intercepted |
+| Refresh token | **7 days** | Body of `POST /api/auth/refresh` only | Exchanges for a new token pair without re-entering a password |
+
+These constants are defined in `models.go`:
+
+```go
+const (
+    accessTokenTTL  = 15 * time.Minute
+    refreshTokenTTL = 7 * 24 * time.Hour
+)
+```
 
 **Claims structure:**
 
 ```json
 // Access token payload
 {
-  "sub":  42,           // numeric user ID
-  "type": "access",    // type guard — prevents refresh token being used as access
+  "sub":  42,
+  "type": "access",
   "iat":  1700000000,
-  "exp":  1700000900   // 15 min later
+  "exp":  1700000900
 }
 
 // Refresh token payload
 {
   "sub":   42,
-  "email": "user@example.com",  // carried so /refresh needs no DB lookup
+  "email": "user@example.com",
   "type":  "refresh",
   "iat":   1700000000,
-  "exp":   1700604800           // 7 days later
+  "exp":   1700604800
 }
 ```
 
-**`type` claim:** Both tokens are HMAC-SHA256 signed with the same secret. Without the `type` guard, a refresh token could be submitted to a protected API route and pass signature validation. The `parseAccessToken` and `parseRefreshToken` functions each assert `claims["type"]` before accepting a token.
+**`type` claim:** Both tokens are HMAC-SHA256 signed with the same `JWT_SECRET`. The `type` field prevents a refresh token from being accepted as an access token. `parseAccessToken` and `parseRefreshToken` each assert `claims["type"]` before accepting a token.
 
-**Signing algorithm:** `HS256` (HMAC-SHA256). Symmetric — the same secret signs and verifies. Appropriate for a single-server deployment. For multi-party systems (microservices, third-party clients), `RS256` (asymmetric) is preferred but adds key-pair management complexity that is unnecessary here.
+**Signing algorithm:** `HS256` (HMAC-SHA256). Symmetric signing is appropriate for a single-server deployment where the same process both signs and verifies.
 
-**Client-side storage:** Tokens are stored in `localStorage` with keys `finance_access_token` and `finance_refresh_token`. The `api.ts` module wraps all token access in `try/catch` to handle browsers that block storage (private windows, strict cookie settings).
+**Client-side storage:** Tokens are stored in `localStorage` under the keys `finance_access_token` and `finance_refresh_token`.
 
-**Proactive refresh:** `apiFetch` checks expiry 60 seconds before the actual `exp` timestamp. This means the user never hits a 401 mid-operation because the token expired between the check and the server processing the request.
+**Proactive refresh:** `apiFetch` in `api.ts` checks whether the access token is within 60 seconds of its `exp` timestamp and proactively refreshes before sending the request. This prevents a mid-flight expiry.
 
 ---
 
 ## Refresh Token Revocation
 
-**The problem with plain JWTs:** A JWT is valid until its `exp` timestamp regardless of what the server knows. If a user logs out, the old token is still cryptographically valid for up to 7 days.
+**The problem with plain JWTs:** A JWT remains cryptographically valid until its `exp` timestamp regardless of what the server knows. A user who logs out still has a valid refresh token for up to 7 days.
 
 **Solution — server-side hash storage:**
 
 ```sql
--- users table (migration 002)
-refresh_token_hash  TEXT        -- SHA-256 hex of the current valid refresh token
-refresh_token_exp   TIMESTAMPTZ -- mirrors the JWT exp (double-check layer)
+-- Added by migration 002
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS refresh_token_hash TEXT,        -- SHA-256 hex of the current valid token
+    ADD COLUMN IF NOT EXISTS refresh_token_exp  TIMESTAMPTZ; -- mirrors the JWT exp (double-check layer)
 ```
 
-**How it works:**
+**Lifecycle:**
 
-1. **Login / Register:** Backend generates a refresh token, computes `SHA-256(token)`, stores the hash in `users.refresh_token_hash`.
-2. **`/api/auth/refresh`:** Backend verifies JWT signature → then checks `SHA-256(incoming) == stored_hash`. If the user logged out on another device, `stored_hash` is NULL → 401.
-3. **Rotation:** On every successful refresh, the old hash is replaced with the new token's hash atomically. Replaying an old refresh token after rotation returns 401 immediately.
-4. **Logout:** Backend sets `refresh_token_hash = NULL`. Any subsequent refresh attempt fails the hash check — the token is revoked within milliseconds of logout.
+1. **Login / Register:** Backend generates a refresh token, computes `SHA-256(token)` as a hex string, stores it in `users.refresh_token_hash`.
+2. **`/api/auth/refresh`:** Backend verifies JWT signature → then checks `SHA-256(incoming token) == stored hash`. If the user has logged out, `stored_hash` is NULL → 401.
+3. **Rotation:** On every successful refresh, the old hash is replaced with the new token's hash atomically in the same `UPDATE`.
+4. **Logout:** Backend sets `refresh_token_hash = NULL`. Any subsequent refresh attempt fails with 401.
 
-**Why SHA-256 hash, not the raw token:**
-Storing the raw token in the database means a DB read breach exposes valid bearer credentials. The hash is a one-way commitment — an attacker who reads the database cannot reconstruct the token.
+**Why SHA-256 hash, not the raw token:** The hash is a one-way commitment. An attacker who reads the database cannot reconstruct the token.
 
-**Why a partial index:**
+**Partial index:**
+
 ```sql
-CREATE INDEX idx_users_refresh_token_hash ON users(refresh_token_hash)
+CREATE INDEX IF NOT EXISTS idx_users_refresh_token_hash ON users(refresh_token_hash)
     WHERE refresh_token_hash IS NOT NULL;
 ```
-The index only covers rows where a token exists. Logged-out users (NULL hash) are excluded, keeping the index small and lookups fast.
+
+The index covers only rows where a token exists. Logged-out users (NULL hash) are excluded, keeping the index small.
 
 ---
 
 ## React + TypeScript + Vite — Frontend
 
-**Why React:**
-React's component model maps cleanly to the tab-based UI (AddExpense, Categories, ExpenseViewer, DashboardView). Unidirectional data flow — state lives in `Dashboard.tsx`, flows down as props — makes data changes predictable.
+**Why React:** React's component model maps cleanly to the tab-based UI. Unidirectional data flow—state lives in `Dashboard.tsx` and flows down as props.
 
-**Why TypeScript:**
-- Interfaces (`Expense`, `Category`, `ExpenseActions`) are the contract between components. TypeScript enforces these at compile time.
-- The `actions` prop pattern — where views receive typed action interfaces instead of directly calling `apiFetch` — is only ergonomic with TypeScript. Without it, you'd pass untyped functions and lose all safety.
-- Vite's build pipeline (`tsc -p tsconfig.json && vite build`) type-checks before bundling — no runtime surprises from a mismatched API response shape.
+**Why TypeScript:** Interfaces (`Expense`, `Category`, `ExpenseActions`, etc.) are the contract between components. TypeScript enforces these at compile time.
 
-**Why Vite over Create React App:**
-- Vite dev server is ~10× faster (native ESM, no bundling in dev)
-- Build output is smaller (better tree-shaking)
-- CRA is unmaintained as of 2023
+**Why Vite over Create React App:** Vite's dev server is ~10× faster (native ESM, no full bundle in dev mode). CRA has been unmaintained since 2023.
 
 **Frontend module structure:**
 
 ```
-src/
-├── main.tsx          — React root mount
-├── App.tsx           — session restore, auth gate
-├── AuthScreen.tsx    — login/register
-├── Dashboard.tsx     — owns data + network; composes views
-├── api.ts            — all HTTP: apiFetch, token storage, refresh logic
-├── types.ts          — interfaces + action contracts
-└── views/            — pure UI components, zero network dependency
-    ├── AddExpense.tsx
-    ├── Categories.tsx
-    ├── ExpenseViewer.tsx
-    └── DashboardView.tsx
+frontend/src/
+├── main.tsx            — React root mount point
+├── App.tsx             — session restore, auth gate, logout handler
+├── AuthScreen.tsx      — login / register form
+├── Dashboard.tsx       — owns all data + network; composes pure view components
+├── api.ts              — HTTP: apiFetch, token storage, proactive + reactive refresh
+├── types.ts            — TypeScript interfaces + action contracts + TABS order
+├── hooks/
+│   ├── useExpenseData.ts   — centralised data fetch: expenses, categories,
+│   │                         availableYears, fetchCategoryPercent, fetchMonthlyTrend
+│   └── useClickOutside.ts  — generic outside-click hook (used by dropdowns)
+├── components/
+│   └── SelectAllCheckbox.tsx — tri-state select-all checkbox (unchecked / indeterminate / checked)
+└── views/
+    ├── AddExpense.tsx      — form to add a new expense
+    ├── Categories.tsx      — create, rename, delete categories; select-all bulk delete
+    ├── ExpenseViewer.tsx   — filterable table with inline edit + bulk delete; select-all
+    └── DashboardView.tsx   — year/month filter, category breakdown bars, monthly trend chart
 ```
 
-**Dependency Inversion in views:** Views receive `actions: ExpenseActions` (etc.) as props — typed interfaces, not concrete `apiFetch` calls. This makes every view independently testable by passing a mock implementation:
+**Component responsibilities:**
+
+- `App.tsx` — restores session from localStorage on mount; registers the global session-expiry handler; renders `AuthScreen` or `Dashboard`.
+- `Dashboard.tsx` — the only component that calls `apiFetch` directly; owns `expenses`, `categories`, and action state; constructs typed action objects and passes them down as props.
+- `useExpenseData` — centralises all read-only data fetching in one stable hook; computes `availableYears` via `useMemo`; exposes `fetchCategoryPercent` and `fetchMonthlyTrend` as stable `useCallback` references.
+- View components under `views/` — pure UI, zero network dependency. They receive data and action interfaces as props.
+- `SelectAllCheckbox` — single-responsibility reusable component; sets the native `indeterminate` DOM property via `useRef` + `useEffect` (not settable through JSX).
+
+**Tab order (`types.ts`):**
 
 ```ts
-const mockActions: ExpenseActions = {
-    addExpense: vi.fn().mockResolvedValue(true),
-};
-render(<AddExpense categories={[]} actions={mockActions} onSaved={vi.fn()} />);
+export const TABS: TabName[] = ['dashboard', 'add', 'categories', 'viewer'];
 ```
+
+Rendered as: **Overview → New Expense → Categories → My Expenses**
+
+**Dependency Inversion in views:** Views receive typed action interfaces (`ExpenseActions`, `CategoryActions`, `ExpenseViewerActions`) as props, not concrete `apiFetch` calls. `DashboardView` receives `fetchCategoryPercent` and `fetchMonthlyTrend` callbacks injected from `useExpenseData` — it never imports `apiFetch` directly.
+
+**Interface Segregation in the Overview:** `DashboardView` receives `availableYears: string[]` (computed once in `useExpenseData`) rather than the full `Expense[]` array — it only needs the year strings, not the raw expense objects.
+
+**Performance patterns used:**
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| `useMemo` | `availableYears`, `trendMax`, `scopeLabel`, category stats, row styles | Avoids recomputing on every render |
+| `useCallback([], [])` | Fetch callbacks, `selectAll`, `deselectAll`, `handleYearChange` | Stable references prevent unnecessary child re-renders |
+| `Promise.all` | `DashboardView` load callback | Parallel fetches for category % and monthly trend |
+| `useRef` + `useEffect` | `SelectAllCheckbox` | Native `indeterminate` property not settable via React props |
+| Static style constants | All views | `STYLES` objects defined outside components; never recreated on render |
+
+**Dev server proxy (`vite.config.ts`):**
+
+```ts
+server: {
+    port: 5173,
+    proxy: {
+        '/api': {
+            target: 'http://localhost:8080',
+            changeOrigin: true,
+            secure: false,
+        }
+    }
+}
+```
+
+During local development (`npm run dev`), Vite proxies all `/api/*` requests to the Go backend running on port 8080.
 
 ---
 
 ## Tailwind CSS
 
-Loaded via CDN (`<script src="https://cdn.tailwindcss.com">`). Utility classes keep styles co-located with markup — no separate CSS files to maintain. For a project of this size, the CDN play-CDN script is acceptable. For production with strict CSP, the PostCSS CLI build pipeline would be preferred.
+Loaded via CDN script (`https://cdn.tailwindcss.com`) in `index.html`. Utility classes keep styles co-located with markup — no separate CSS files to maintain. No build step or PostCSS configuration required.
 
 ---
 
 ## Docker & Docker Compose
-
-**Why Docker:**
-- Reproducible builds — the Go binary is compiled inside `golang:1.21-alpine`, not on the host. A developer on macOS produces the same Linux binary as CI.
-- Isolation — services communicate on a Docker internal network. Only Caddy has public ports.
-- Dependency-free deploys — the production server needs only Docker and `git clone`.
-
-**Multi-stage Dockerfile (backend):**
-
-```dockerfile
-# Stage 1: compile
-FROM golang:1.21-alpine AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN go build -o server .
-
-# Stage 2: minimal runtime image
-FROM alpine:3.19
-COPY --from=builder /app/server .
-COPY migrations/ ./migrations/
-CMD ["./server"]
-```
-
-The final image contains only the compiled binary and migration SQL files. No Go toolchain. Result: ~15 MB image vs ~800 MB if built on `golang:1.21`.
 
 **Named volumes:**
 
 | Volume | Purpose | Notes |
 |--------|---------|-------|
 | `pgdata` | Postgres data directory | Persists data across `docker compose down` |
-| `caddy_data` | TLS certificates from Let's Encrypt | **Never wipe in production** — rate limits on cert re-issuance |
+| `caddy_data` | TLS certificates from Let's Encrypt | **Never wipe in production** |
 | `caddy_config` | Caddy config cache | Safe to wipe; rebuilt on restart |
 
 **`expose` vs `ports`:**
-Backend (`:8080`) and frontend (`:80`) use `expose` — they are reachable only by other containers on the Docker network. `ports` maps a host port, making the service reachable from outside. Only Caddy uses `ports: ["80:80", "443:443"]`.
 
-**Health check:**
+- `backend` and `frontend` use `expose` — ports are accessible only within the compose network.
+- `caddy` uses `ports: ["80:80", "443:443", "443:443/udp"]` — the only container reachable from the host.
+
+**Health check and startup ordering:**
+
 ```yaml
-healthcheck:
-  test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-  interval: 5s
-  retries: 5
+db:
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+    interval: 5s
+    timeout: 5s
+    retries: 5
+
+backend:
+  depends_on:
+    db:
+      condition: service_healthy
 ```
-The backend container has `depends_on: db: condition: service_healthy`. Docker will not start the backend until Postgres is actually accepting connections — not just started. Without this, the backend attempts its DB connection during Postgres initialization and crashes.
+
+Docker will not start the backend container until Postgres is actually accepting connections (not just started). This prevents migration failures on cold start.
 
 ---
 
@@ -304,179 +361,277 @@ The backend container has `depends_on: db: condition: service_healthy`. Docker w
 
 | Feature | Caddy | nginx |
 |---------|-------|-------|
-| TLS certificates | Automatic (Let's Encrypt, ACME) | Manual (`certbot`, cron renewal) |
-| HTTP/3 (QUIC) | Built-in | Requires OpenSSL 3 + extra config |
-| Config verbosity | 10-line Caddyfile | 60+ line nginx.conf for equivalent |
-| Localhost dev | Auto self-signed cert | Manual cert generation |
-| Cert renewal | Zero-downtime automatic | Cron job + reload |
+| TLS certificates | Automatic (Let's Encrypt, ACME v2) | Manual (`certbot` + cron renewal) |
+| Localhost dev cert | Auto self-signed | Manual cert generation |
+| HTTP/3 (QUIC) | Built-in (UDP 443) | Requires OpenSSL 3 + extra config |
+| Config verbosity | ~15-line Caddyfile | 60+ line nginx.conf for equivalent |
+| Zero-downtime renewal | Automatic | Cron job + nginx reload |
 
-The entire production TLS config is:
+**Caddyfile:**
+
 ```
 {$DOMAIN} {
-    handle /api/* { reverse_proxy backend:8080 }
-    handle        { reverse_proxy frontend:80  }
+    handle /api/* {
+        reverse_proxy backend:8080
+    }
+
+    handle {
+        reverse_proxy frontend:80
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Frame-Options           "DENY"
+        X-Content-Type-Options    "nosniff"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    log {
+        output stdout
+        format json
+    }
 }
 ```
-Caddy reads `DOMAIN` from the environment and handles cert issuance, renewal, OCSP stapling, and HTTP→HTTPS redirect automatically.
 
-**Security headers (Caddy layer):**
+**Security headers applied at the Caddy layer:**
 
 | Header | Value | Purpose |
 |--------|-------|---------|
-| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` | Forces HTTPS for 1 year; eligible for browser HSTS preload list |
-| `X-Frame-Options` | `DENY` | Prevents clickjacking (embedding the app in an iframe) |
-| `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing attacks |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` | Limits referrer leakage to cross-origin requests |
-| `-Server` | *(removed)* | Strips the `Caddy` server header — no version fingerprinting |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` | Forces HTTPS for 1 year |
+| `X-Frame-Options` | `DENY` | Prevents clickjacking |
+| `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Limits referrer leakage |
+| `Server` | *(removed)* | Strips the server identification header |
 
 ---
 
 ## nginx — Frontend Static Server
 
-The React build output (`dist/`) is served by nginx inside the `frontend` container. Key config choices:
+The React build output (`dist/`) is served by nginx inside the `frontend` container. Key config:
 
-- **SPA fallback:** `try_files $uri $uri/ /index.html` — all unknown paths return `index.html` so React Router can handle client-side navigation.
-- **Static asset caching:** `Cache-Control: public, max-age=31536000, immutable` on `/assets/*`. Vite content-hashes all asset filenames (`main.a3f9c2.js`) so stale cache is impossible.
-- **Gzip compression:** Text assets (JS, CSS, HTML) are gzip-compressed, reducing transfer size by ~70%.
-- **Proxy headers:** Forwards `X-Forwarded-For` and `X-Forwarded-Proto` so the backend can read the real client IP and protocol if needed.
+- **SPA fallback:** `try_files $uri $uri/ /index.html` — all unmatched paths return `index.html` so client-side routing works.
+- **Static asset caching:** `Cache-Control: public, max-age=31536000, immutable` on `/assets/*` — Vite content-hashes filenames so this is safe.
+- **Gzip compression:** Text assets compressed, reducing transfer size by ~70%.
 
 ---
 
 ## Secret Management
 
-**What is secret vs. config:**
-
-| Variable | Type | How set |
-|----------|------|---------|
-| `POSTGRES_PASSWORD` | Secret | Auto-generated: `openssl rand -hex 24` (192-bit) |
-| `JWT_SECRET` | Secret | Auto-generated: `openssl rand -hex 64` (512-bit) |
+| Variable | Type | How generated |
+|----------|------|---------------|
+| `POSTGRES_PASSWORD` | Secret | `openssl rand -hex 24` (192-bit entropy) |
+| `JWT_SECRET` | Secret | `openssl rand -hex 64` (512-bit entropy) |
 | `POSTGRES_USER` | Config | Manual in `.env` (default: `postgres`) |
 | `POSTGRES_DB` | Config | Manual in `.env` (default: `financedb`) |
 | `DOMAIN` | Config | Manual in `.env` (default: `localhost`) |
-| `DB_URL` | Derived | Built at runtime by `init-secrets.sh` — never stored |
-| `ALLOWED_ORIGIN` | Derived | Built from `DOMAIN` at runtime — never stored |
+| `DB_URL` | Derived | Assembled at runtime in `start.sh` / `init-secrets.sh`; never written to `.env` |
+| `ALLOWED_ORIGIN` | Derived | Built from `DOMAIN` at runtime; never written to `.env` |
 
-**Why `openssl rand -hex`:**
-- `openssl rand -hex 24` generates 24 random bytes from `/dev/urandom`, hex-encoded to 48 characters. Entropy: 192 bits. Brute-force infeasible.
-- `openssl rand -hex 64` for JWT: 512 bits. HMAC-SHA256 only uses 256 bits of key material, so this is double the necessary entropy — fully future-proof.
+**Idempotency:** `init-secrets.sh`'s `set_if_blank` function reads the current value of a key and only overwrites it if blank. Re-running the script on an existing `.env` is safe and preserves all values.
 
-**Idempotency:** `init-secrets.sh` only fills blank values. Re-running it on a server that already has secrets does nothing — existing values are preserved.
-
-**`DB_URL` never in `.env`:** The connection string contains both the username and password. Storing it separately from its components would create a duplication/drift risk. Instead it is assembled at runtime and exported only into the Docker Compose environment.
+**`DB_URL` never in `.env`:** Assembling the connection string at runtime rather than storing it avoids accidentally committing credentials in a connection string form that includes both username and password.
 
 ---
 
 ## SOLID Architecture in the Frontend
 
-| Principle | Applied |
-|-----------|---------|
-| **Single Responsibility** | Each file has one job: `api.ts` handles HTTP, `types.ts` holds interfaces, each view renders one screen |
-| **Open/Closed** | Adding a new tab/view requires adding a file and one line in `Dashboard.tsx` — no existing files change |
-| **Liskov Substitution** | N/A — no class inheritance in this codebase |
-| **Interface Segregation** | Each view gets only the action interface it needs (`ExpenseActions`, `CategoryActions`, `ExpenseViewerActions`) |
-| **Dependency Inversion** | Views depend on `ExpenseActions` (abstract interface), not `apiFetch` (concrete implementation). `Dashboard.tsx` wires the concrete implementation |
+| Principle | How it's applied |
+|-----------|-----------------|
+| **Single Responsibility** | Each file has one job: `api.ts` handles HTTP, `types.ts` holds interfaces, `useExpenseData.ts` owns all read fetches, `SelectAllCheckbox.tsx` handles only the tri-state visual + click dispatch, each view renders exactly one screen |
+| **Open/Closed** | Adding a new tab requires creating a new file in `views/` and adding one line to `TABS` in `types.ts` — no existing view files change |
+| **Liskov Substitution** | N/A — no class inheritance used |
+| **Interface Segregation** | Each view gets only the action interface it needs (`ExpenseActions`, `CategoryActions`, `ExpenseViewerActions`). `DashboardView` receives `availableYears: string[]` instead of the full `Expense[]` array — only the data it actually needs |
+| **Dependency Inversion** | Views depend on typed action interfaces and injected fetch callbacks (abstractions), never on `apiFetch` (the concrete network implementation). `DashboardView` receives `fetchCategoryPercent` and `fetchMonthlyTrend` as props from `Dashboard.tsx` via `useExpenseData` |
 
 ---
 
-## API Design
+## API Reference
 
-All routes are prefixed `/api/`. Auth routes are public; data routes require `Authorization: Bearer <access_token>`.
+All routes are prefixed `/api/`. Auth routes are public. All other routes require `Authorization: Bearer <access_token>`.
 
 ### Auth
 
-| Method | Path | Body | Response |
-|--------|------|------|----------|
-| `POST` | `/api/auth/register` | `{ email, password }` | `201 { accessToken, refreshToken, user }` |
-| `POST` | `/api/auth/login` | `{ email, password }` | `200 { accessToken, refreshToken, user }` |
+| Method | Path | Request body | Success response |
+|--------|------|-------------|-----------------|
+| `POST` | `/api/auth/register` | `{ email, password }` | `201 { accessToken, refreshToken, user: { id, email } }` |
+| `POST` | `/api/auth/login` | `{ email, password }` | `200 { accessToken, refreshToken, user: { id, email } }` |
 | `POST` | `/api/auth/refresh` | `{ refreshToken }` | `200 { accessToken, refreshToken }` |
-| `POST` | `/api/auth/logout` | `{ refreshToken }` | `204` |
+| `POST` | `/api/auth/logout` | `{ refreshToken }` | `204 (no body)` |
+
+**Password rules:** minimum 6 characters, maximum 72 characters (bcrypt limit). Passwords are hashed at `bcrypt.DefaultCost` before storage.
 
 ### Categories *(auth required)*
 
-| Method | Path | Body | Response |
-|--------|------|------|----------|
+| Method | Path | Query / body | Success response |
+|--------|------|-------------|-----------------|
 | `GET` | `/api/categories` | — | `200 [{ id, name }]` |
 | `POST` | `/api/categories` | `{ name }` | `201 { id, name }` |
-| `DELETE` | `/api/categories/delete?id=N` | — | `204` |
+| `PUT` | `/api/categories` | `{ id, name }` | `200 { id, name }` |
+| `DELETE` | `/api/categories/delete` | `?id=1&id=2` | `204` |
+
+Category names are unique per user (`UNIQUE(name, user_id)` constraint). Deleting a category that has expenses attached returns `409 Conflict` (enforced by the `ON DELETE RESTRICT` foreign key).
 
 ### Expenses *(auth required)*
 
-| Method | Path | Query | Body | Response |
-|--------|------|-------|------|----------|
-| `GET` | `/api/expenses` | `year`, `month` | — | `200 [Expense]` |
-| `POST` | `/api/expenses` | — | `{ amount, description, categoryId }` | `201 Expense` |
-| `DELETE` | `/api/expenses/delete?id=N` | — | — | `204` |
-| `GET` | `/api/expenses/category-percentage` | `year`, `month` | — | `200 [Result]` |
+| Method | Path | Query / body | Success response |
+|--------|------|-------------|-----------------|
+| `GET` | `/api/expenses` | `?year=2024&month=11` (optional) | `200 [Expense]` |
+| `POST` | `/api/expenses` | `{ amount, description, categoryId }` | `201 Expense` |
+| `PUT` | `/api/expenses` | `{ id, amount, description, categoryId }` | `200 Expense` |
+| `DELETE` | `/api/expenses/delete` | `?id=1&id=2` | `204` |
+| `GET` | `/api/expenses/category-percentage` | `?year=2024&month=11` (optional) | `200 [{ categoryName, totalAmount, percentage }]` |
+
+The `year` and `month` query parameters are optional on `GET` endpoints. When omitted, results span all time. When provided, results are filtered to that calendar period.
+
+**`Expense` object:**
+
+```json
+{
+  "id": 42,
+  "amount": 12.50,
+  "description": "Lunch",
+  "categoryId": 3,
+  "categoryName": "Food & Dining",
+  "createdAt": "2024-11-15T12:34:56Z"
+}
+```
 
 ### Reports *(auth required)*
 
-| Method | Path | Response |
-|--------|------|----------|
-| `GET` | `/api/reports/monthly` | `200 [{ month, totalAmount }]` |
-| `GET` | `/api/reports/total` | `200 { total }` |
-| `GET` | `/api/reports/category-totals` | `200 [{ categoryName, totalAmount }]` |
+| Method | Path | Query | Success response |
+|--------|------|-------|-----------------|
+| `GET` | `/api/reports/monthly` | `?year=2024&month=11` (optional) | `200 [{ month: "2024-11-01", totalAmount: 342.50 }]` ordered ASC by month |
+| `GET` | `/api/reports/total` | — | `200 { total: 1234.56 }` |
+| `GET` | `/api/reports/category-totals` | `?year=2024&month=11` (optional) | `200 [{ categoryName, totalAmount }]` ordered by total DESC |
+
+`/api/reports/monthly` is used by the **Overview** tab to render the Monthly Trend bar chart. `year` and `month` filters narrow the result set using the same `buildFilter` helper as the expense endpoints. The `month` field is the ISO date of the first day of that calendar month (from PostgreSQL `date_trunc('month', created_at)`).
 
 ---
 
 ## Database Schema
 
 ```sql
-users
-├── id             SERIAL PRIMARY KEY
-├── email          TEXT NOT NULL UNIQUE
-├── password_hash  TEXT NOT NULL          -- bcrypt, DefaultCost
-├── created_at     TIMESTAMPTZ DEFAULT NOW()
-├── refresh_token_hash TEXT               -- SHA-256 hex; NULL = logged out
-└── refresh_token_exp  TIMESTAMPTZ        -- mirrors JWT exp
+-- Migration 001: initial schema
+CREATE TABLE users (
+    id            SERIAL      PRIMARY KEY,
+    email         TEXT        NOT NULL UNIQUE,
+    password_hash TEXT        NOT NULL,          -- bcrypt, DefaultCost
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-categories
-├── id       SERIAL PRIMARY KEY
-├── name     TEXT NOT NULL
-├── user_id  INTEGER → users(id) ON DELETE CASCADE
-└── UNIQUE(name, user_id)                -- per-user uniqueness only
+CREATE TABLE categories (
+    id      SERIAL  PRIMARY KEY,
+    name    TEXT    NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE (name, user_id)
+);
 
-expenses
-├── id           SERIAL PRIMARY KEY
-├── amount       NUMERIC(12,2) CHECK (amount > 0)
-├── description  TEXT
-├── category_id  INTEGER → categories(id) ON DELETE RESTRICT
-├── user_id      INTEGER → users(id) ON DELETE CASCADE
-└── created_at   TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE expenses (
+    id          SERIAL         PRIMARY KEY,
+    amount      NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+    description TEXT,
+    category_id INTEGER        NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
+    user_id     INTEGER        NOT NULL REFERENCES users(id)     ON DELETE CASCADE,
+    created_at  TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+);
 
--- Indexes
-idx_expenses_created_at   ON expenses(created_at)
-idx_expenses_category_id  ON expenses(category_id)
-idx_expenses_user_id      ON expenses(user_id)
-idx_categories_user_id    ON categories(user_id)
-idx_users_refresh_token_hash ON users(refresh_token_hash) WHERE hash IS NOT NULL
+CREATE INDEX idx_expenses_created_at  ON expenses(created_at);
+CREATE INDEX idx_expenses_category_id ON expenses(category_id);
+CREATE INDEX idx_expenses_user_id     ON expenses(user_id);
+CREATE INDEX idx_categories_user_id   ON categories(user_id);
+
+-- Migration 002: refresh token revocation
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS refresh_token_hash TEXT,
+    ADD COLUMN IF NOT EXISTS refresh_token_exp  TIMESTAMPTZ;
+
+CREATE INDEX idx_users_refresh_token_hash ON users(refresh_token_hash)
+    WHERE refresh_token_hash IS NOT NULL;
 ```
 
-**Per-user data isolation:** Every query filters by `user_id = $1` injected from the validated JWT. A user cannot read or modify another user's data even if they guess an integer ID — the SQL `WHERE` clause enforces it.
+**Design notes:**
+
+- `amount NUMERIC(12,2)` — supports values up to 9,999,999,999.99 with exact decimal arithmetic.
+- `category_id ... ON DELETE RESTRICT` — prevents deleting a category that has expenses attached. The UI enforces this as a user-facing error.
+- `user_id ... ON DELETE CASCADE` on both `categories` and `expenses` — deleting a user cleans up all their data automatically.
+- The partial index on `refresh_token_hash` excludes NULL rows (logged-out users) to keep the index small.
 
 ---
 
-## Data Flow Diagram
+## Data Flow Diagrams
+
+### Registration / Login
 
 ```
-Registration / Login
-─────────────────────────────────────────────────────────────────
-Browser → POST /api/auth/login { email, password }
-        ← 200 { accessToken (15 min), refreshToken (7 days), user }
-Browser stores both tokens in localStorage
+Browser  →  POST /api/auth/login { email, password }
+         ←  200 { accessToken (15 min), refreshToken (7 days), user }
 
-Authenticated Request
-─────────────────────────────────────────────────────────────────
-apiFetch checks: is accessToken expired? (60s before exp)
-  No  → GET /api/expenses  Authorization: Bearer <accessToken>
-  Yes → POST /api/auth/refresh { refreshToken }
-        ← 200 { new accessToken, new refreshToken }  (rotation)
-        → retry original request with new accessToken
+Backend:
+  1. SELECT user WHERE email = ?
+  2. bcrypt.CompareHashAndPassword(stored_hash, incoming_password)
+  3. issueTokenPair(userID, email):
+       a. Sign access JWT  (type=access,  exp=now+15m)
+       b. Sign refresh JWT (type=refresh, exp=now+7d)
+       c. UPDATE users SET refresh_token_hash = SHA256(refreshToken),
+                           refresh_token_exp  = now+7d
+       d. Return both tokens
 
-Logout
-─────────────────────────────────────────────────────────────────
-Browser → POST /api/auth/logout { refreshToken }
-        Backend: UPDATE users SET refresh_token_hash = NULL
-        ← 204
-Browser clears localStorage
-Any future use of the old refreshToken → 401 (hash mismatch)
+Browser stores both in localStorage.
+```
+
+### Authenticated Request with Proactive Refresh
+
+```
+apiFetch('/api/expenses'):
+  1. Read accessToken from localStorage
+  2. Decode JWT payload, check exp - 60s
+     a. Not expired → add Authorization: Bearer header, send request
+     b. Near/past expiry → POST /api/auth/refresh { refreshToken }
+        ← 200 { new accessToken, new refreshToken }
+        → save new tokens, retry original request
+
+On 401 from the API (reactive path):
+  1. attemptRefresh() → new token pair
+  2. Retry request once with new accessToken
+  3. If refresh also fails → clearTokens(), call onSessionExpired()
+     → App.tsx resets user state → AuthScreen shown
+```
+
+### Refresh Token Validation
+
+```
+POST /api/auth/refresh { refreshToken }
+
+Backend:
+  1. jwt.ParseWithClaims → verify HS256 signature + expiry
+  2. Assert claims["type"] == "refresh"
+  3. SELECT refresh_token_hash, refresh_token_exp FROM users WHERE id = sub
+  4. Compare SHA256(incoming) == stored_hash
+     → mismatch or NULL → 401 Unauthorized
+  5. Issue new token pair
+  6. UPDATE users SET refresh_token_hash = SHA256(newRefreshToken)
+  7. Return { accessToken, refreshToken }
+```
+
+### Overview Dashboard Data Load
+
+```
+User navigates to Overview tab (or changes year/month filter):
+
+DashboardView:
+  1. Builds query params: ?year=YYYY (+ &month=MM if selected)
+  2. Promise.all([
+       fetchCategoryPercent(year, month),   → GET /api/expenses/category-percentage?...
+       fetchMonthlyTrend(year, month),      → GET /api/reports/monthly?...
+     ])
+  3. Both resolve in parallel → setState for pctData + trendData
+  4. React re-renders Category Breakdown bars + Monthly Trend chart simultaneously
+
+Backend (getMonthlySummary):
+  1. userID from JWT context
+  2. buildFilter(r, "e", 2) → AND EXTRACT(YEAR FROM e.created_at) = $2 (etc.)
+  3. SELECT date_trunc('month', e.created_at)::date AS month, SUM(e.amount)
+     FROM expenses e WHERE e.user_id = $1 <filter> GROUP BY month ORDER BY month ASC
+  4. Returns array ordered oldest → newest (for left-to-right chart rendering)
 ```

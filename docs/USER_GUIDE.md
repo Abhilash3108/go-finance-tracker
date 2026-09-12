@@ -9,245 +9,252 @@
 1. [Getting Started](#getting-started)
 2. [Creating Your Account](#creating-your-account)
 3. [Logging In](#logging-in)
-4. [Setting Up Categories](#setting-up-categories)
-5. [Adding Expenses](#adding-expenses)
-6. [Viewing & Filtering Expenses](#viewing--filtering-expenses)
-7. [Dashboard — Spending Analysis](#dashboard--spending-analysis)
-8. [Signing Out](#signing-out)
-9. [Returning Users — Session Restore](#returning-users--session-restore)
-10. [FAQ](#faq)
+4. [Navigating the App](#navigating-the-app)
+5. [Setting Up Categories](#setting-up-categories)
+6. [Adding Expenses](#adding-expenses)
+7. [Viewing, Editing & Filtering Expenses](#viewing-editing--filtering-expenses)
+8. [Overview Dashboard — Spending Analysis](#overview-dashboard--spending-analysis)
+9. [Signing Out](#signing-out)
+10. [Returning Users — Session Restore](#returning-users--session-restore)
+11. [FAQ](#faq)
 
 ---
 
 ## Getting Started
 
-Open your browser and go to your Finance Tracker URL:
+Open your browser and navigate to your Finance Tracker URL:
 
 - **Local installation:** `https://localhost`
 - **Production:** `https://yourdomain.com`
 
-> **First time on localhost?** Your browser will show a security warning because the local certificate is self-signed. This is expected. Click **Advanced → Proceed to localhost** (Chrome) or **Accept the Risk and Continue** (Firefox).
-
-You will land on the login screen. Since you don't have an account yet, click **Create an account**.
+> **First time on localhost?** Your browser will show a security warning because the local certificate is self-signed by Caddy. Click **Advanced → Proceed to localhost** (Chrome) or **Accept the Risk and Continue** (Firefox). This is expected and your connection is still encrypted.
 
 ---
 
 ## Creating Your Account
-
-![Auth Screen](../frontend/src/assets/auth-placeholder.png)
 
 1. Click **Create an account** below the login form.
 2. Enter your **email address**.
 3. Choose a **password** — minimum 6 characters, maximum 72.
 4. Click **Create Account**.
 
-On success you are logged in immediately and taken to the Dashboard. No email confirmation required.
+On success you are signed in immediately and taken to the Overview tab. No email confirmation is required.
 
-**Rules:**
-- Each email can only be registered once.
+**Security details:**
+- Each email address can only be registered once.
 - Passwords are hashed with bcrypt before storage — the server never stores your plain-text password.
-- Your data is completely isolated from other users. No one else can see your categories or expenses.
+- Your data is completely isolated from all other users; every query is filtered by your account.
 
 ---
 
 ## Logging In
 
-If you already have an account:
-
 1. Enter your **email** and **password**.
 2. Click **Sign In**.
 
-You will be taken to the Dashboard tab.
+Use the eye icon next to the password field to show or hide what you're typing.
 
-**Staying signed in:** Your session is stored in the browser. Closing and reopening the tab — or even closing the browser entirely — keeps you signed in for up to **7 days** without re-entering your password. The session renews automatically while you use the app.
+**Staying signed in:** Your session is stored in the browser. Closing and reopening the tab — or closing the browser entirely — keeps you signed in for up to **7 days** without re-entering your password.
+
+---
+
+## Navigating the App
+
+After signing in you will see four tabs across the top of the screen:
+
+| Tab | What it does |
+|-----|-------------|
+| 📊 **Overview** | Dashboard with year/month filter, category breakdown, and monthly trend chart |
+| ➕ **New Expense** | Form to log a new expense |
+| 🏷️ **Categories** | Create, rename, and delete expense categories |
+| 📋 **My Expenses** | Filterable table of all your expenses, with inline editing and bulk delete |
 
 ---
 
 ## Setting Up Categories
 
-> ⚠️ **Create at least one category before adding expenses.** Every expense must belong to a category.
+> **Create at least one category before adding expenses.** Every expense must belong to a category.
 
 Navigate to the **Categories** tab.
 
 ### Add a category
 
-1. Type a category name in the text box (e.g. `Food`, `Transport`, `Rent`, `Entertainment`).
+1. Type a category name in the input field.
 2. Click **Add**.
 
-The category appears in the list immediately. Category names are unique per account — you can't create two categories with the same name.
+Category names are unique per account — you cannot have two categories with the same name.
 
 **Suggested starting categories:**
-- Food & Dining
-- Transport
-- Housing
-- Utilities
-- Entertainment
-- Health
-- Shopping
-- Other
 
-### Delete categories
+| Category | Examples |
+|----------|---------|
+| Food & Dining | Groceries, restaurants, coffee |
+| Transport | Gas, transit, parking, ride-share |
+| Housing | Rent, utilities, maintenance |
+| Health | Prescriptions, gym, medical |
+| Entertainment | Streaming, events, hobbies |
+| Shopping | Clothing, household items |
+| Other | Anything that doesn't fit elsewhere |
 
-1. Check the box next to one or more categories you want to remove.
-2. Click **Delete Selected (N)**.
+### Rename a category
 
-> ⚠️ **You cannot delete a category that has expenses attached to it.** Delete or reassign the expenses first, then delete the category. This protects your expense history from accidental data loss.
+Click the **Edit** button next to a category name, update the text, and press **Save** (or press Enter).
+
+### Select and delete categories in bulk
+
+1. Click the **checkbox** in the toolbar header to select all categories at once, or tick individual checkboxes next to any categories you want to remove.
+   - The header checkbox shows a **dash (−)** when some — but not all — categories are selected (indeterminate state).
+   - Clicking it when any are selected deselects all; clicking it when none are selected selects all.
+2. A **Delete (N)** button appears once at least one category is selected.
+3. Click **Delete (N)** to remove the selected categories.
+
+> ⚠️ **You cannot delete a category that has expenses attached to it.** The app will show an error. Go to the **My Expenses** tab and delete those expenses first.
+
+The select-all checkbox is disabled while a category is open for editing or a delete is in progress.
 
 ---
 
 ## Adding Expenses
 
-Navigate to the **Add** tab.
+Navigate to the **New Expense** tab.
 
-### Record a new expense
+| Field | Required | Description | Example |
+|-------|----------|-------------|---------|
+| **Amount ($)** | Yes | The cost — must be greater than $0. Decimals accepted. | `12.50` |
+| **Category** | Yes | Which category this expense belongs to. | `Food & Dining` |
+| **Description** | No | A short note about the expense. | `Lunch at Chipotle` |
 
-Fill in the three fields:
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| **Amount ($)** | The cost — must be greater than $0. Accepts decimals. | `12.50` |
-| **Category** | Which category this expense belongs to. | `Food & Dining` |
-| **Description** | A short note about what you spent on. | `Lunch at Chipotle` |
-
-Click **Save Entry**.
-
-The form resets immediately so you can add another expense without refreshing. Your new expense appears in the **Viewer** tab.
-
-**Tips:**
-- You can add multiple expenses in a row — the form clears after each save.
-- The date is recorded automatically at the moment you save.
-- Amount supports two decimal places: `9.99`, `100.00`, `1250.75`.
+Click **Save Entry**. The form resets immediately so you can log another expense without refreshing.
 
 ---
 
-## Viewing & Filtering Expenses
+## Viewing, Editing & Filtering Expenses
 
-Navigate to the **Viewer** tab.
-
-All your expenses are displayed in a table, newest first:
-
-| Column | Description |
-|--------|-------------|
-| Date | When the expense was recorded (YYYY-MM-DD) |
-| Description | The note you entered |
-| Category | Which category it belongs to |
-| Amount | Cost in dollars |
+Navigate to the **My Expenses** tab. All expenses are shown in a table, newest first.
 
 ### Filter by month
 
-Use the **All Months** dropdown at the top left. Only months that have at least one expense appear as options. Select a month (e.g. `2024-11`) to show only that month's expenses.
+Use the **month dropdown** at the top. Only months that have at least one expense appear as options. Select **All** to see every expense.
 
 ### Filter by category
 
-Click the **Category ▼** dropdown in the table header. Select a category to show only expenses in that category. Both filters work together — you can view, for example, "Food expenses in November 2024".
+Use the **category filter** in the table header. Both the month and category filters work together.
 
-### Delete expenses
+### Edit an expense
 
-1. Check the box in the **Select** column next to the expenses you want to remove.
-2. Click **Delete Selected (N)**.
+Click the **edit (pencil) icon** on any row to update the amount, description, or category inline.
 
-The selected expenses are permanently deleted. The count next to the button updates as you check boxes.
+### Select and delete expenses in bulk
 
-> This action cannot be undone. Double-check your selection before clicking Delete.
+1. Click the **checkbox** in the table header to select all visible (filtered) rows at once, or tick individual checkboxes on any rows you want to remove.
+   - The header checkbox shows a **dash (−)** when some rows are selected (indeterminate state).
+   - Selecting all visible rows selects only the rows currently shown — rows hidden by filters are not affected.
+2. Click **Delete Selected (N)** to remove the selected expenses.
+
+> This action cannot be undone.
 
 ---
 
-## Dashboard — Spending Analysis
+## Overview Dashboard — Spending Analysis
 
-Navigate to the **Dashboard** tab.
+Navigate to the **Overview** tab to see your spending summary.
 
-The dashboard shows your **total spending** and a **category breakdown** showing how much you spent in each category and what percentage of your total each represents.
+### Year and month filter
 
-### Filter by category
+At the top of the Overview tab you will find two dropdowns:
 
-Use the **Filter Analysis by Category** dropdown to focus the view on one category. The total at the top updates to reflect only the filtered category.
+| Dropdown | Options | Effect |
+|----------|---------|--------|
+| **Year** | All, or any year that has expenses | Filters both charts to that year |
+| **Month** | All, or any month 1–12 | Filters to a specific month within the selected year |
 
-**Reading the breakdown:**
+The **Month** dropdown is disabled when Year is set to **All** (a single month across all years is not a useful slice). To filter by a specific month, first select a year.
 
-```
-Category Breakdown
-─────────────────────────────
-Food & Dining      $342.50    48.2% of total
-Transport          $180.00    25.3% of total
-Entertainment      $188.75    26.5% of total
-─────────────────────────────
-Total Spent        $711.25
-```
+A **scope badge** below the dropdowns confirms what data is being shown (e.g. *All time*, *2024*, or *Nov 2024*).
 
-Each row shows:
-- **Category name**
-- **Total amount** spent in that category
-- **Percentage** of your overall spending
+### Category Breakdown
 
-This helps you see at a glance where most of your money goes.
+The left panel shows how spending is distributed across categories for the selected period:
+
+- Horizontal bar for each category sized proportionally to its share.
+- Amount and percentage beside each bar.
+- A **filter** dropdown inside this panel lets you highlight a single category.
+
+### Monthly Trend
+
+The right panel shows spending per calendar month as vertical bars:
+
+- Each bar is labelled with the month abbreviation (e.g. *Jan*, *Feb*).
+- The **peak month** — the month with the highest spending — is called out above the chart.
+- When a specific month is selected via the top filter, only that month's bar is shown.
+
+### Example
+
+With Year = **2024** selected:
+
+| Panel | What you see |
+|-------|-------------|
+| Category Breakdown | Food & Dining 42% · Transport 28% · Entertainment 30% |
+| Monthly Trend | Bar chart from Jan 2024 to Dec 2024, tallest bar in December |
+| Scope badge | *2024* |
 
 ---
 
 ## Signing Out
 
-Click **Sign Out** in the top-right corner of any screen.
+Click **Sign Out** in the top-right corner. This:
 
-What happens:
-1. Your session is immediately invalidated on the server — the refresh token is revoked.
-2. Tokens are cleared from your browser storage.
-3. You are returned to the login screen.
+1. Sends your refresh token to the server, which immediately invalidates it in the database.
+2. Clears all tokens from your browser's storage.
 
-**Sign out on all devices:** Signing out only clears the current browser's session. To invalidate all sessions (e.g. if you suspect your account is compromised), sign out from each device or change your password. Future: a "sign out everywhere" feature would clear the refresh token server-side, logging out all active sessions simultaneously.
+After signing out, your old session is immediately invalidated — reopening the app will show the login screen.
 
 ---
 
 ## Returning Users — Session Restore
 
-When you open the app after closing your browser:
+When you open the app, it checks your stored tokens in this order:
 
-1. If your **access token** (15 min) is still valid → you are signed in immediately, no flicker.
-2. If the access token expired but your **refresh token** (7 days) is still valid → the app silently fetches a new token pair in the background and signs you in without any prompt.
-3. If both tokens have expired (more than 7 days since last use) → you see the login screen.
+1. **Access token still valid (within 15 minutes of login/refresh)** → signed in immediately, no network call.
+2. **Access token expired, refresh token still valid (within 7 days)** → app silently fetches a new token pair in the background, then shows the Overview tab. No login prompt.
+3. **Both tokens expired (no activity for 7+ days)** → tokens are cleared and the login screen is shown.
 
-This means you typically only need to enter your password once every 7 days, as long as you use the app at least once per week.
+This means you only need to re-enter your password after more than 7 days of inactivity.
 
 ---
 
 ## FAQ
 
 **Can I use the same account on multiple devices?**
-Yes. Sign in on each device. Sessions are independent — each device has its own refresh token. Logging out on one device does not affect the others.
+Yes. Each device holds its own refresh token. Logging out on one device does not affect sessions on others.
 
-**What happens if I delete a category that has expenses?**
-You cannot — the app prevents it with an error message. Delete the expenses in the Viewer tab first, then delete the category.
+**What happens if I try to delete a category that has expenses?**
+The app prevents it and shows an error message. Go to the **My Expenses** tab, filter by that category, delete the expenses, and then try deleting the category again.
 
 **Are my expenses visible to anyone else?**
-No. Every database query filters strictly by your user ID, which is embedded in your signed JWT. Even if someone knew an integer expense ID, they could not retrieve your data without your token.
+No. Every database query is strictly filtered by your user ID. Other users cannot see or access your data.
 
 **I forgot my password. Can I reset it?**
-Password reset is not yet implemented. Contact your administrator to reset the password hash directly in the database:
-```sql
-UPDATE users SET password_hash = '<new bcrypt hash>' WHERE email = 'you@example.com';
-```
-A self-service reset flow (email link) is a planned future feature.
+Password reset is not yet available in the UI. Contact your administrator and ask them to reset your password — they can update it directly in the database on your behalf.
 
-**The app says "session expired" and logged me out unexpectedly.**
-This happens when both your access token and refresh token have expired (no activity for 7+ days), or if you were logged out on another device. Sign in again. Your data is not affected.
+**The app logged me out unexpectedly.**
+Either:
+- Both tokens expired (no activity for more than 7 days).
+- You were signed out from another device or by an administrator.
+
+Sign in again to start a new session.
 
 **Can I export my expenses?**
-Not yet via the UI. You can export directly from the database:
-```bash
-docker compose exec db psql -U postgres -d financedb \
-  -c "\COPY (SELECT e.created_at, e.amount, e.description, c.name
-             FROM expenses e JOIN categories c ON e.category_id = c.id
-             WHERE e.user_id = 1
-             ORDER BY e.created_at DESC)
-      TO '/tmp/expenses.csv' CSV HEADER;"
-docker compose cp db:/tmp/expenses.csv ./expenses.csv
-```
+Not yet through the UI. Contact your administrator — they can export your expenses as a CSV file from the database and send it to you.
 
 **How do I change my password?**
-Not yet available in the UI. Direct DB update:
-```bash
-# Generate a new bcrypt hash (use any bcrypt tool or a small Go script)
-docker compose exec db psql -U postgres -d financedb \
-  -c "UPDATE users SET password_hash = '\$2a\$10\$...' WHERE email = 'you@example.com';"
-```
+Password change is not yet available in the UI. Contact your administrator and ask them to update it for you.
 
-**I see a certificate warning on localhost — is this safe?**
-Yes. Caddy issues a locally-trusted self-signed certificate for `localhost`. The warning is your browser telling you it doesn't recognise the certificate authority, not that anything is wrong with the app. All traffic is still encrypted. On a real domain with a Let's Encrypt certificate this warning does not appear.
+**I see a certificate warning on localhost — is it safe?**
+Yes. Caddy generates a locally-trusted self-signed certificate for `localhost` automatically. All traffic is still TLS-encrypted. On a real domain with a valid DNS record, this warning does not appear — Caddy fetches a trusted Let's Encrypt certificate automatically.
+
+**Why does the month filter only show some months?**
+The dropdown only lists months that have at least one recorded expense. Months with no expenses are hidden to keep the list clean.
+
+**The Month dropdown on the Overview tab is greyed out — why?**
+The Month filter is disabled when Year is set to **All**. Filtering by a single month across all years would produce misleading comparisons. Select a specific year first, then choose a month.
