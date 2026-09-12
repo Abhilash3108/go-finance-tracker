@@ -1,0 +1,28 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://go-finance-tracker.onrender.com/api/:path*"
+    }
+  ]
+}
+Created         am-dev-works/finance-tracker-am-dev-work
+> Connecting GitHub repository: https://github.com/Abhilash3108/go-finance-tracker
+> Connected
+  Inspect         https://vercel.com/am-dev-works/finance-tracker-am-dev-work/DcDJZRkn8mqcMcnvvMKauqaW5uPw
+  Production      https://finance-tracker-am-dev-work-b2o9c5k1y-am-dev-works.vercel.app
+▲ Aliased         https://finance-tracker-am-dev-work.vercel.app
+
+✓ Ready in 12s
+📝  Deployed to production. Run `vercel --prod` to overwrite later (https://vercel.link/2F).
+💡  To change the domain or build command, go to https://vercel.com/am-dev-works/finance-tracker-am-dev-work/settings
+📝  This is your project’s first deployment, so it was assigned to production. Future deployments will be preview deployments unless you use --prod.
+Learn More: https://vercel.com/docs/deployments/environments
+
+Next steps:
+- Check the deployment response:
+  vercel curl https://finance-tracker-am-dev-work-b2o9c5k1y-am-dev-works.vercel.app
+- View build logs:
+  vercel inspect finance-tracker-am-dev-work-b2o9c5k1y-am-dev-works.vercel.app --logs
+- Create a new deployment from the same source:
+  vercel redeploy finance-tracker-am-dev-work-b2o9c5k1y-am-dev-works.vercel.app

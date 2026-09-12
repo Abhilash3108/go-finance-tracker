@@ -68,9 +68,9 @@ export default function Dashboard({ user, onLogout }: Props) {
             return res.ok;
         },
         deleteCategories: async (ids: number[]) => {
-            await Promise.all(
-                ids.map(id => apiFetch(`/api/categories/delete?id=${id}`, { method: 'DELETE' })),
-            );
+            // Single request with all ids: DELETE /api/categories/delete?id=1&id=2&id=3
+            const params = ids.map(id => `id=${id}`).join('&');
+            await apiFetch(`/api/categories/delete?${params}`, { method: 'DELETE' });
         },
     };
 
@@ -83,9 +83,9 @@ export default function Dashboard({ user, onLogout }: Props) {
             return res.ok;
         },
         deleteExpenses: async (ids: number[]) => {
-            await Promise.all(
-                ids.map(id => apiFetch(`/api/expenses/delete?id=${id}`, { method: 'DELETE' })),
-            );
+            // Single request with all ids: DELETE /api/expenses/delete?id=1&id=2&id=3
+            const params = ids.map(id => `id=${id}`).join('&');
+            await apiFetch(`/api/expenses/delete?${params}`, { method: 'DELETE' });
         },
     };
 
