@@ -9,6 +9,7 @@ import (
     "log"
     "net/http"
     "os"
+    "time"
 
     "github.com/golang-migrate/migrate/v4"
     "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -29,6 +30,15 @@ func initDB(dbURL string) {
     if err != nil {
         log.Fatal("Failed to open DB: ", err)
     }
+
+    // Tune the connection pool for a low-memory environment (512 MB RAM).
+    // Supabase Session pooler allows 15 connections per client by default;
+    // keeping well below that avoids pool exhaustion and caps memory usage.
+    db.SetMaxOpenConns(5)              // at most 5 concurrent DB connections
+    db.SetMaxIdleConns(2)              // keep 2 warm; release the rest
+    db.SetConnMaxLifetime(5 * time.Minute)  // recycle connections every 5 min
+    db.SetConnMaxIdleTime(2 * time.Minute)  // close idle connections after 2 min
+
     if err = db.Ping(); err != nil {
         log.Fatal("Database unreachable: ", err)
     }

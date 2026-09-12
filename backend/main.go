@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"time"
 )
 
 func main() {
@@ -41,8 +42,17 @@ func main() {
 	// Apply CORS globally.
 	handler := corsMiddleware(mux)
 
+	// Enforce server-level timeouts to prevent slow clients or Supabase
+	// latency spikes from holding goroutines open indefinitely on 512 MB RAM.
+	srv := &http.Server{
+		Addr:         ":8080",
+		Handler:      handler,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
 	log.Println("🚀 Backend listening on :8080")
-	if err := http.ListenAndServe(":8080", handler); err != nil {
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal("Server error: ", err)
 	}
 }

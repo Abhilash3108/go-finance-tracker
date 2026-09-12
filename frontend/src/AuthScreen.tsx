@@ -9,6 +9,7 @@ export default function AuthScreen({ onAuth }: Props) {
     const [mode, setMode]         = useState<'login' | 'register'>('login');
     const [email, setEmail]       = useState('');
     const [password, setPassword] = useState('');
+    const [showPw, setShowPw]     = useState(false);
     const [error, setError]       = useState('');
     const [loading, setLoading]   = useState(false);
 
@@ -38,7 +39,7 @@ export default function AuthScreen({ onAuth }: Props) {
         }
     };
 
-    const toggleMode = () => { setMode(m => m === 'login' ? 'register' : 'login'); setError(''); };
+    const toggleMode = () => { setMode(m => m === 'login' ? 'register' : 'login'); setError(''); setShowPw(false); };
 
     return (
         <div className="min-h-screen bg-gray-100 flex items-center justify-center p-8">
@@ -51,9 +52,37 @@ export default function AuthScreen({ onAuth }: Props) {
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <input type="email" value={email} onChange={e => setEmail(e.target.value)}
                         placeholder="Email" className="w-full border p-3 rounded-lg" required />
-                    <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-                        placeholder="Password (min 6 characters)" className="w-full border p-3 rounded-lg"
-                        minLength={6} required />
+                    <div className="relative">
+                        <input
+                            type={showPw ? 'text' : 'password'}
+                            value={password}
+                            onChange={e => setPassword(e.target.value)}
+                            placeholder="Password (min 6 characters)"
+                            className="w-full border p-3 rounded-lg pr-11"
+                            minLength={6}
+                            required
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowPw(v => !v)}
+                            className="absolute inset-y-0 right-3 flex items-center text-gray-400 hover:text-gray-600"
+                            aria-label={showPw ? 'Hide password' : 'Show password'}
+                        >
+                            {showPw ? (
+                                /* Eye-off icon */
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 012.08-3.667M6.34 6.34A9.97 9.97 0 0112 5c4.477 0 8.268 2.943 9.542 7a10.05 10.05 0 01-4.342 5.345M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
+                                </svg>
+                            ) : (
+                                /* Eye icon */
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                            )}
+                        </button>
+                    </div>
                     {error && <p className="text-red-500 text-sm">{error}</p>}
                     <button type="submit" disabled={loading}
                         className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition disabled:opacity-50">

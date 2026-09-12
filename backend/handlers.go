@@ -1,9 +1,11 @@
 package main
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -221,38 +223,65 @@ func updateExpense(w http.ResponseWriter, r *http.Request) {
 // Handlers: Deletion
 // ---------------------------------------------------------------------------
 
+// deleteExpense deletes one or more expenses in a single query.
+// Accepts ?id=1&id=2&id=3 — all IDs must belong to the authenticated user.
 func deleteExpense(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	ids := r.URL.Query()["id"]
+	if len(ids) == 0 {
+		http.Error(w, "at least one id is required", http.StatusBadRequest)
+		return
+	}
 	userID := userIDFromContext(r)
+
+	// Convert string ids to ints for the ANY($1) array parameter.
+	intIDs, err := parseIntIDs(ids)
+	if err != nil {
+		http.Error(w, "invalid id value", http.StatusBadRequest)
+		return
+	}
 	if _, err := db.Exec(
-		"DELETE FROM expenses WHERE id = $1 AND user_id = $2",
-		r.URL.Query().Get("id"), userID,
+		"DELETE FROM expenses WHERE id = ANY($1) AND user_id = $2",
+		intIDs, userID,
 	); err != nil {
-		http.Error(w, "Failed to delete expense", http.StatusInternalServerError)
+		http.Error(w, "Failed to delete expenses", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// deleteCategory deletes one or more categories in a single query.
+// Accepts ?id=1&id=2&id=3 — all IDs must belong to the authenticated user.
 func deleteCategory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	ids := r.URL.Query()["id"]
+	if len(ids) == 0 {
+		http.Error(w, "at least one id is required", http.StatusBadRequest)
+		return
+	}
 	userID := userIDFromContext(r)
-	_, err := db.Exec(
-		"DELETE FROM categories WHERE id = $1 AND user_id = $2",
-		r.URL.Query().Get("id"), userID,
+
+	intIDs, err := parseIntIDs(ids)
+	if err != nil {
+		http.Error(w, "invalid id value", http.StatusBadRequest)
+		return
+	}
+	_, err = db.Exec(
+		"DELETE FROM categories WHERE id = ANY($1) AND user_id = $2",
+		intIDs, userID,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "foreign key") || strings.Contains(err.Error(), "violates") {
 			http.Error(w, "Cannot delete category with existing expenses", http.StatusConflict)
 			return
 		}
-		http.Error(w, "Failed to delete category", http.StatusInternalServerError)
+		http.Error(w, "Failed to delete categories", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -418,6 +447,45 @@ func updateCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, cat, http.StatusOK)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// parseIntIDs converts a slice of string ids (from query params) into a
+// pq-compatible int array usable with ANY($1). Returns an error if any
+// value is not a valid positive integer.
+func parseIntIDs(strs []string) (interface{}, error) {
+	ids := make([]int64, 0, len(strs))
+	for _, s := range strs {
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil || n <= 0 {
+			return nil, fmt.Errorf("invalid id: %q", s)
+		}
+		ids = append(ids, n)
+	}
+	// pq driver supports []int64 directly for ANY($1)
+	return pqArray(ids), nil
+}
+
+// pqArray wraps []int64 into a type the lib/pq driver can serialise as a
+// Postgres integer array for use with ANY($1).
+type pqInt64Array []int64
+
+func pqArray(ids []int64) pqInt64Array { return pqInt64Array(ids) }
+
+// Value implements driver.Valuer so pqInt64Array can be passed as a
+// query argument to lib/pq, which serialises it as '{1,2,3}'.
+func (a pqInt64Array) Value() (driver.Value, error) {
+	if len(a) == 0 {
+		return "{}", nil
+	}
+	b := make([]string, len(a))
+	for i, v := range a {
+		b[i] = strconv.FormatInt(v, 10)
+	}
+	return "{" + strings.Join(b, ",") + "}", nil
 }
 
 // ---------------------------------------------------------------------------
