@@ -33,9 +33,19 @@ type MonthlySummary struct {
 	TotalAmount float64 `json:"totalAmount"`
 }
 
-type CategoryTotal struct {
-	CategoryName string  `json:"categoryName"`
-	TotalAmount  float64 `json:"totalAmount"`
+type RecurringExpense struct {
+	ID           int     `json:"id"`
+	Amount       float64 `json:"amount"`
+	Description  string  `json:"description"`
+	CategoryID   int     `json:"categoryId"`
+	CategoryName string  `json:"categoryName,omitempty"`
+}
+
+// DumpResult is returned by POST /api/recurring/dump.
+// Warnings lists recurring item IDs that were already dumped this calendar month.
+type DumpResult struct {
+	Added    int   `json:"added"`
+	Warnings []int `json:"warnings"` // IDs of items that already had an expense this month
 }
 
 type Result struct {

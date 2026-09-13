@@ -21,8 +21,8 @@ export interface MonthlySummary {
     totalAmount: number;
 }
 
-export type TabName = 'add' | 'categories' | 'viewer' | 'dashboard';
-export const TABS: TabName[] = ['dashboard', 'add', 'categories', 'viewer'];
+export type TabName = 'add' | 'categories' | 'viewer' | 'dashboard' | 'recurring';
+export const TABS: TabName[] = ['dashboard', 'add', 'categories', 'viewer', 'recurring'];
 
 // ---------------------------------------------------------------------------
 // Action interfaces — typed contracts injected into views from Dashboard.
@@ -57,4 +57,31 @@ export interface UpdateExpensePayload {
 export interface ExpenseViewerActions {
     updateExpense:  (id: number, payload: UpdateExpensePayload) => Promise<boolean>;
     deleteExpenses: (ids: number[]) => Promise<void>;
+}
+
+export interface RecurringExpense {
+    id:           number;
+    amount:       number;
+    description:  string;
+    categoryId:   number;
+    categoryName?: string;
+}
+
+export interface NewRecurringExpense {
+    amount:      number;
+    description: string;
+    categoryId:  number;
+}
+
+export interface DumpResult {
+    added:    number;
+    warnings: number[]; // recurring IDs that already had an expense this month
+}
+
+/** Actions available to the RecurringView. */
+export interface RecurringActions {
+    addRecurring:    (payload: NewRecurringExpense)                    => Promise<boolean>;
+    updateRecurring: (id: number, payload: NewRecurringExpense)        => Promise<boolean>;
+    deleteRecurring: (ids: number[])                                   => Promise<void>;
+    dumpRecurring:   (ids: number[], date: string) => Promise<DumpResult | null>;
 }

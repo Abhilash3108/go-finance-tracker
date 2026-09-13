@@ -51,12 +51,15 @@ Open **https://localhost** (accept the self-signed cert warning on first visit).
 go-finance-tracker/
 ├── backend/
 │   ├── main.go          — route registration, server config
-│   ├── handlers.go      — categories, expenses, reports endpoints
+│   ├── handlers.go      — categories, expenses, reports, export, recurring endpoints
 │   ├── auth.go          — register/login/refresh/logout + token helpers
 │   ├── db.go            — connection pool, migration runner
 │   ├── middleware.go    — CORS, JWT auth
 │   ├── models.go        — domain types, token TTL constants
 │   └── migrations/      — numbered .up.sql files (embedded in binary)
+│       ├── 001_init.up.sql
+│       ├── 002_refresh_token.up.sql
+│       └── 003_recurring_expenses.up.sql
 │
 └── frontend/src/
     ├── Dashboard.tsx    — tab shell, data owner, action wiring
@@ -64,15 +67,17 @@ go-finance-tracker/
     ├── types.ts         — interfaces, action contracts, TABS order
     ├── hooks/
     │   ├── useExpenseData.ts    — centralised read hook (expenses, categories,
-    │   │                          availableYears, fetchCategoryPercent, fetchMonthlyTrend)
+    │   │                          availableYears, recurringItems, fetchCategoryPercent,
+    │   │                          fetchMonthlyTrend, fetchRecurring, fetchExport)
     │   └── useClickOutside.ts  — generic outside-click hook
     ├── components/
     │   └── SelectAllCheckbox.tsx — tri-state select-all (unchecked/indeterminate/checked)
     └── views/
-        ├── DashboardView.tsx  — year/month filter, category breakdown, monthly trend chart
+        ├── DashboardView.tsx  — year/month filter, category breakdown, monthly trend, CSV export
         ├── AddExpense.tsx     — add expense form
         ├── Categories.tsx     — create/rename/delete + select-all bulk delete
-        └── ExpenseViewer.tsx  — filter/edit/delete table + select-all bulk delete
+        ├── ExpenseViewer.tsx  — filter/edit/delete table + select-all bulk delete
+        └── RecurringView.tsx  — recurring templates CRUD + select-all + dump to expenses
 ```
 
 ---
@@ -108,16 +113,19 @@ docker compose logs --tail 50 --follow
 ## Key Patterns
 
 ### Tab order
-Controlled by `TABS` in `frontend/src/types.ts`. Current order: Overview → New Expense → Categories → My Expenses.
+Controlled by `TABS` in `frontend/src/types.ts`. Current order: Overview → New Expense → Categories → My Expenses → Recurring.
 
 ### Data fetching — Dependency Inversion
 Views **never** import `apiFetch`. All fetch callbacks are injected as props from `Dashboard.tsx` (sourced via `useExpenseData`). This keeps views independently testable with mocks.
 
 ### `useExpenseData` hook
-Single source of truth for read-only server data. Returns `expenses`, `categories`, `availableYears` (derived via `useMemo`), plus stable `fetchCategoryPercent(year, month)` and `fetchMonthlyTrend(year, month)` callbacks. Pass `'all'` to skip a filter.
+Single source of truth for read-only server data. Returns `expenses`, `categories`, `availableYears` (derived via `useMemo`), `recurringItems`, plus stable callbacks: `fetchCategoryPercent(year, month)`, `fetchMonthlyTrend(year, month)`, `fetchRecurring()` (lazy — not called on boot, triggered when the Recurring tab is first opened), and `fetchExport(from, to)` (builds query params, fetches blob, triggers browser download). Pass `'all'` to skip a year/month filter.
+
+### CSV export
+`fetchExport(from, to)` in `useExpenseData` calls `GET /api/expenses/export?from=YYYY-MM-DD&to=YYYY-MM-DD`. The backend streams CSV directly to the response with `Content-Disposition: attachment; filename="expenses_…csv"`. The frontend creates a temporary `<a>` element with a blob object URL, clicks it, then calls `URL.revokeObjectURL` to free memory.
 
 ### `buildFilter` helper (backend)
-`buildFilter(r, "e", 2)` builds an optional `AND EXTRACT(YEAR …) / MONTH …` clause from `?year=` / `?month=` query params. Used by `getExpenses`, `getCategoryPercentage`, `getMonthlySummary`, and `getCategoryTotals`.
+`buildFilter(r, "e", 2)` builds an optional `AND EXTRACT(YEAR …) / MONTH …` clause from `?year=` / `?month=` query params. Used by `getExpenses`, `getCategoryPercentage`, and `getMonthlySummary`.
 
 ### SelectAllCheckbox
 Tri-state checkbox in `components/SelectAllCheckbox.tsx`. Sets the native `indeterminate` DOM property via `useRef` + `useEffect` (not settable through JSX). Reuse this component for any bulk-select table header.

@@ -142,8 +142,9 @@ This means no external file mounting is needed in Docker—the binary is self-co
 
 ```
 backend/migrations/
-├── 001_init.up.sql          — users, categories, expenses tables + indexes
-└── 002_refresh_token.up.sql — adds refresh_token_hash + refresh_token_exp to users
+├── 001_init.up.sql               — users, categories, expenses tables + indexes
+├── 002_refresh_token.up.sql      — adds refresh_token_hash + refresh_token_exp to users
+└── 003_recurring_expenses.up.sql — recurring_expenses table + indexes
 ```
 
 At startup, `db.go` calls `m.Up()` which is a no-op if all migrations have already run.
@@ -254,7 +255,8 @@ frontend/src/
 ├── types.ts            — TypeScript interfaces + action contracts + TABS order
 ├── hooks/
 │   ├── useExpenseData.ts   — centralised data fetch: expenses, categories,
-│   │                         availableYears, fetchCategoryPercent, fetchMonthlyTrend
+│   │                         availableYears, recurringItems, fetchCategoryPercent,
+│   │                         fetchMonthlyTrend, fetchRecurring, fetchExport
 │   └── useClickOutside.ts  — generic outside-click hook (used by dropdowns)
 ├── components/
 │   └── SelectAllCheckbox.tsx — tri-state select-all checkbox (unchecked / indeterminate / checked)
@@ -262,26 +264,27 @@ frontend/src/
     ├── AddExpense.tsx      — form to add a new expense
     ├── Categories.tsx      — create, rename, delete categories; select-all bulk delete
     ├── ExpenseViewer.tsx   — filterable table with inline edit + bulk delete; select-all
-    └── DashboardView.tsx   — year/month filter, category breakdown bars, monthly trend chart
+    ├── DashboardView.tsx   — year/month filter, category breakdown bars, monthly trend chart, CSV export
+    └── RecurringView.tsx   — recurring templates CRUD; select-all; dump to expenses with duplicate warning
 ```
 
 **Component responsibilities:**
 
 - `App.tsx` — restores session from localStorage on mount; registers the global session-expiry handler; renders `AuthScreen` or `Dashboard`.
-- `Dashboard.tsx` — the only component that calls `apiFetch` directly; owns `expenses`, `categories`, and action state; constructs typed action objects and passes them down as props.
-- `useExpenseData` — centralises all read-only data fetching in one stable hook; computes `availableYears` via `useMemo`; exposes `fetchCategoryPercent` and `fetchMonthlyTrend` as stable `useCallback` references.
+- `Dashboard.tsx` — the only component that calls `apiFetch` directly; owns `expenses`, `categories`, `recurringItems`, and action state; constructs typed action objects and passes them down as props.
+- `useExpenseData` — centralises all read-only data fetching in one stable hook; computes `availableYears` via `useMemo`; exposes `fetchCategoryPercent`, `fetchMonthlyTrend`, `fetchRecurring` (lazy — triggered only when the Recurring tab is first opened), and `fetchExport` (CSV blob download) as stable `useCallback` references.
 - View components under `views/` — pure UI, zero network dependency. They receive data and action interfaces as props.
 - `SelectAllCheckbox` — single-responsibility reusable component; sets the native `indeterminate` DOM property via `useRef` + `useEffect` (not settable through JSX).
 
 **Tab order (`types.ts`):**
 
 ```ts
-export const TABS: TabName[] = ['dashboard', 'add', 'categories', 'viewer'];
+export const TABS: TabName[] = ['dashboard', 'add', 'categories', 'viewer', 'recurring'];
 ```
 
-Rendered as: **Overview → New Expense → Categories → My Expenses**
+Rendered as: **Overview → New Expense → Categories → My Expenses → Recurring**
 
-**Dependency Inversion in views:** Views receive typed action interfaces (`ExpenseActions`, `CategoryActions`, `ExpenseViewerActions`) as props, not concrete `apiFetch` calls. `DashboardView` receives `fetchCategoryPercent` and `fetchMonthlyTrend` callbacks injected from `useExpenseData` — it never imports `apiFetch` directly.
+**Dependency Inversion in views:** Views receive typed action interfaces (`ExpenseActions`, `CategoryActions`, `ExpenseViewerActions`, `RecurringActions`) as props, not concrete `apiFetch` calls. `DashboardView` receives `fetchCategoryPercent`, `fetchMonthlyTrend`, and `fetchExport` callbacks injected from `useExpenseData` — it never imports `apiFetch` directly.
 
 **Interface Segregation in the Overview:** `DashboardView` receives `availableYears: string[]` (computed once in `useExpenseData`) rather than the full `Expense[]` array — it only needs the year strings, not the raw expense objects.
 
@@ -441,8 +444,8 @@ The React build output (`dist/`) is served by nginx inside the `frontend` contai
 | **Single Responsibility** | Each file has one job: `api.ts` handles HTTP, `types.ts` holds interfaces, `useExpenseData.ts` owns all read fetches, `SelectAllCheckbox.tsx` handles only the tri-state visual + click dispatch, each view renders exactly one screen |
 | **Open/Closed** | Adding a new tab requires creating a new file in `views/` and adding one line to `TABS` in `types.ts` — no existing view files change |
 | **Liskov Substitution** | N/A — no class inheritance used |
-| **Interface Segregation** | Each view gets only the action interface it needs (`ExpenseActions`, `CategoryActions`, `ExpenseViewerActions`). `DashboardView` receives `availableYears: string[]` instead of the full `Expense[]` array — only the data it actually needs |
-| **Dependency Inversion** | Views depend on typed action interfaces and injected fetch callbacks (abstractions), never on `apiFetch` (the concrete network implementation). `DashboardView` receives `fetchCategoryPercent` and `fetchMonthlyTrend` as props from `Dashboard.tsx` via `useExpenseData` |
+| **Interface Segregation** | Each view gets only the action interface it needs (`ExpenseActions`, `CategoryActions`, `ExpenseViewerActions`, `RecurringActions`). `DashboardView` receives `availableYears: string[]` instead of the full `Expense[]` array — only the data it actually needs |
+| **Dependency Inversion** | Views depend on typed action interfaces and injected fetch callbacks (abstractions), never on `apiFetch` (the concrete network implementation). `DashboardView` receives `fetchCategoryPercent`, `fetchMonthlyTrend`, and `fetchExport` as props from `Dashboard.tsx` via `useExpenseData`. `RecurringView` receives `RecurringActions` — no direct network calls |
 
 ---
 
@@ -481,8 +484,11 @@ Category names are unique per user (`UNIQUE(name, user_id)` constraint). Deletin
 | `PUT` | `/api/expenses` | `{ id, amount, description, categoryId }` | `200 Expense` |
 | `DELETE` | `/api/expenses/delete` | `?id=1&id=2` | `204` |
 | `GET` | `/api/expenses/category-percentage` | `?year=2024&month=11` (optional) | `200 [{ categoryName, totalAmount, percentage }]` |
+| `GET` | `/api/expenses/export` | `?from=2024-01-01&to=2024-12-31` (optional) | `200 CSV file download` |
 
 The `year` and `month` query parameters are optional on `GET` endpoints. When omitted, results span all time. When provided, results are filtered to that calendar period.
+
+The `from` / `to` parameters on `/api/expenses/export` are `YYYY-MM-DD` date strings. Both are optional; omitting them exports all expenses. The range is **inclusive** on both ends. The response sets `Content-Disposition: attachment; filename="expenses_YYYY-MM-DD_to_YYYY-MM-DD.csv"` to trigger a browser download.
 
 **`Expense` object:**
 
@@ -502,10 +508,32 @@ The `year` and `month` query parameters are optional on `GET` endpoints. When om
 | Method | Path | Query | Success response |
 |--------|------|-------|-----------------|
 | `GET` | `/api/reports/monthly` | `?year=2024&month=11` (optional) | `200 [{ month: "2024-11-01", totalAmount: 342.50 }]` ordered ASC by month |
-| `GET` | `/api/reports/total` | — | `200 { total: 1234.56 }` |
-| `GET` | `/api/reports/category-totals` | `?year=2024&month=11` (optional) | `200 [{ categoryName, totalAmount }]` ordered by total DESC |
 
 `/api/reports/monthly` is used by the **Overview** tab to render the Monthly Trend bar chart. `year` and `month` filters narrow the result set using the same `buildFilter` helper as the expense endpoints. The `month` field is the ISO date of the first day of that calendar month (from PostgreSQL `date_trunc('month', created_at)`).
+
+### Recurring Expenses *(auth required)*
+
+| Method | Path | Query / body | Success response |
+|--------|------|-------------|-----------------|
+| `GET` | `/api/recurring` | — | `200 [RecurringExpense]` ordered by id ASC |
+| `POST` | `/api/recurring` | `{ amount, description, categoryId }` | `201 { id, amount, description, categoryId }` |
+| `PUT` | `/api/recurring` | `?id=N` + `{ amount, description, categoryId }` | `200 { id, amount, description, categoryId }` |
+| `DELETE` | `/api/recurring/delete` | `?id=1&id=2` | `204` |
+| `POST` | `/api/recurring/dump` | `{ ids: [1,2,3], date: "2024-11-01" }` | `200 { added: N, warnings: [id, …] }` |
+
+**`RecurringExpense` object:**
+
+```json
+{
+  "id": 7,
+  "amount": 1200.00,
+  "description": "Rent",
+  "categoryId": 2,
+  "categoryName": "Housing"
+}
+```
+
+**`/api/recurring/dump`:** Inserts the selected recurring templates as real expenses on the given `date`. For each template, the handler checks whether an expense with the same `description`, `category_id`, and calendar month already exists for the user. Matching templates are still inserted; their IDs are returned in the `warnings` array so the client can surface a duplicate notice. `added` is the total number of rows inserted.
 
 ---
 
@@ -548,14 +576,27 @@ ALTER TABLE users
 
 CREATE INDEX idx_users_refresh_token_hash ON users(refresh_token_hash)
     WHERE refresh_token_hash IS NOT NULL;
+
+-- Migration 003: recurring expense templates
+CREATE TABLE recurring_expenses (
+    id          SERIAL         PRIMARY KEY,
+    amount      NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+    description TEXT,
+    category_id INTEGER        NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
+    user_id     INTEGER        NOT NULL REFERENCES users(id)     ON DELETE CASCADE
+);
+
+CREATE INDEX idx_recurring_user_id     ON recurring_expenses(user_id);
+CREATE INDEX idx_recurring_category_id ON recurring_expenses(category_id);
 ```
 
 **Design notes:**
 
 - `amount NUMERIC(12,2)` — supports values up to 9,999,999,999.99 with exact decimal arithmetic.
-- `category_id ... ON DELETE RESTRICT` — prevents deleting a category that has expenses attached. The UI enforces this as a user-facing error.
-- `user_id ... ON DELETE CASCADE` on both `categories` and `expenses` — deleting a user cleans up all their data automatically.
+- `category_id ... ON DELETE RESTRICT` — prevents deleting a category that has expenses (or recurring templates) attached. The UI enforces this as a user-facing error.
+- `user_id ... ON DELETE CASCADE` on `categories`, `expenses`, and `recurring_expenses` — deleting a user cleans up all their data automatically.
 - The partial index on `refresh_token_hash` excludes NULL rows (logged-out users) to keep the index small.
+- `recurring_expenses` has no `created_at` column — templates are not time-stamped because they represent standing instructions, not events. The `dumpRecurring` handler uses the caller-supplied `date` when inserting into `expenses`.
 
 ---
 

@@ -35,9 +35,11 @@ func main() {
 	mux.Handle("/api/expenses",                       auth(handleExpenses))
 	mux.Handle("/api/expenses/delete",                auth(deleteExpense))
 	mux.Handle("/api/expenses/category-percentage",   auth(getCategoryPercentage))
+	mux.Handle("/api/expenses/export",                auth(exportExpenses))
 	mux.Handle("/api/reports/monthly",                auth(getMonthlySummary))
-	mux.Handle("/api/reports/total",                  auth(getTotalExpenses))
-	mux.Handle("/api/reports/category-totals",        auth(getCategoryTotals))
+	mux.Handle("/api/recurring",                      auth(handleRecurring))
+	mux.Handle("/api/recurring/delete",               auth(deleteRecurring))
+	mux.Handle("/api/recurring/dump",                 auth(dumpRecurring))
 
 	// Apply CORS globally.
 	handler := corsMiddleware(mux)

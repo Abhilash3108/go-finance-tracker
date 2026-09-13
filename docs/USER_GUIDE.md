@@ -14,9 +14,10 @@
 6. [Adding Expenses](#adding-expenses)
 7. [Viewing, Editing & Filtering Expenses](#viewing-editing--filtering-expenses)
 8. [Overview Dashboard — Spending Analysis](#overview-dashboard--spending-analysis)
-9. [Signing Out](#signing-out)
-10. [Returning Users — Session Restore](#returning-users--session-restore)
-11. [FAQ](#faq)
+9. [Recurring Expenses](#recurring-expenses)
+10. [Signing Out](#signing-out)
+11. [Returning Users — Session Restore](#returning-users--session-restore)
+12. [FAQ](#faq)
 
 ---
 
@@ -60,14 +61,15 @@ Use the eye icon next to the password field to show or hide what you're typing.
 
 ## Navigating the App
 
-After signing in you will see four tabs across the top of the screen:
+After signing in you will see five tabs across the top of the screen:
 
 | Tab | What it does |
 |-----|-------------|
-| 📊 **Overview** | Dashboard with year/month filter, category breakdown, and monthly trend chart |
+| 📊 **Overview** | Dashboard with year/month filter, category breakdown, monthly trend chart, and CSV export |
 | ➕ **New Expense** | Form to log a new expense |
 | 🏷️ **Categories** | Create, rename, and delete expense categories |
 | 📋 **My Expenses** | Filterable table of all your expenses, with inline editing and bulk delete |
+| 🔁 **Recurring** | Store recurring expense templates (rent, subscriptions, etc.) and dump them into expenses |
 
 ---
 
@@ -188,6 +190,16 @@ The right panel shows spending per calendar month as vertical bars:
 - The **peak month** — the month with the highest spending — is called out above the chart.
 - When a specific month is selected via the top filter, only that month's bar is shown.
 
+### Export CSV
+
+At the bottom of the Overview tab you can download your expenses as a CSV file.
+
+1. The **From** and **To** date fields are pre-filled to cover the currently selected year (or all time if no year is selected). You can adjust them to any date range you like.
+2. Click **Download CSV**.
+3. Your browser will save a file named `expenses_YYYY-MM-DD_to_YYYY-MM-DD.csv` with columns: **ID, Amount, Description, Category, Date**.
+
+> **From must be on or before To.** If the dates are reversed an error is shown and no download starts.
+
 ### Example
 
 With Year = **2024** selected:
@@ -197,6 +209,42 @@ With Year = **2024** selected:
 | Category Breakdown | Food & Dining 42% · Transport 28% · Entertainment 30% |
 | Monthly Trend | Bar chart from Jan 2024 to Dec 2024, tallest bar in December |
 | Scope badge | *2024* |
+| Export CSV | From pre-filled to 2024-01-01, To pre-filled to 2024-12-31 |
+
+---
+
+## Recurring Expenses
+
+Navigate to the **Recurring** tab. This tab stores *templates* for expenses that repeat every month — rent, subscriptions, gym membership, etc. Templates are separate from your real expenses; you control when they are added.
+
+### Add a recurring template
+
+1. Fill in the **Amount**, **Category**, and (optionally) a **Description**.
+2. Click **Add**.
+
+The template appears in the list below.
+
+### Edit a template
+
+Click the **Edit** button on any row, update the fields, and press **Save**.
+
+### Delete templates in bulk
+
+1. Tick individual checkboxes, or use the **select-all checkbox** in the header to select all templates.
+2. Click **Delete (N)** to remove them.
+
+### Dump templates into real expenses
+
+When you want to log this month's recurring expenses:
+
+1. Select one or more templates using their checkboxes.
+2. The **Add to Expenses** panel appears at the bottom.
+3. Choose the **date** the expenses should be recorded on (defaults to today; you can change it).
+4. Click **Add to Expenses**.
+
+The selected templates are inserted as real expenses on the chosen date. A success banner confirms how many were added.
+
+**Duplicate warning:** If a template was already added as an expense in the current calendar month (same description, same category), the app will show a warning listing the affected templates. The expenses are still added — the warning is informational so you don't double-count by accident.
 
 ---
 
@@ -245,7 +293,7 @@ Either:
 Sign in again to start a new session.
 
 **Can I export my expenses?**
-Not yet through the UI. Contact your administrator — they can export your expenses as a CSV file from the database and send it to you.
+Yes. Go to the **Overview** tab, scroll to the **Export CSV** section, set the date range, and click **Download CSV**. The file is saved directly to your downloads folder.
 
 **How do I change my password?**
 Password change is not yet available in the UI. Contact your administrator and ask them to update it for you.

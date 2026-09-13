@@ -5,9 +5,10 @@ import CategoryFilter from '../components/CategoryFilter';
 interface Props {
     categories:           Category[];
     availableYears:       string[];
-    // Both injected from useExpenseData — view never touches apiFetch directly (DIP).
+    // All injected from useExpenseData — view never touches apiFetch directly (DIP).
     fetchCategoryPercent: (year: string, month: string) => Promise<CategoryPercentage[]>;
     fetchMonthlyTrend:    (year: string, month: string) => Promise<MonthlySummary[]>;
+    fetchExport:          (from: string, to: string)    => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,23 @@ const MONTHS = [
     { value: '11', label: 'November'  },
     { value: '12', label: 'December'  },
 ];
+
+// ---------------------------------------------------------------------------
+// Helpers defined outside component — never recreated on render
+// ---------------------------------------------------------------------------
+
+/** Convert year/month dropdown values to a YYYY-MM-DD bound for the export API.
+ *  Returns '' when year is 'all' (no bound). */
+function toIsoDate(year: string, month: string, side: 'from' | 'to'): string {
+    if (year === 'all') return '';
+    if (month !== 'all') {
+        const m = month.padStart(2, '0');
+        if (side === 'from') return `${year}-${m}-01`;
+        const lastDay = new Date(parseInt(year, 10), parseInt(month, 10), 0).getDate();
+        return `${year}-${m}-${String(lastDay).padStart(2, '0')}`;
+    }
+    return side === 'from' ? `${year}-01-01` : `${year}-12-31`;
+}
 
 // ---------------------------------------------------------------------------
 // Static style constants
@@ -103,6 +121,18 @@ const STYLES = {
     } as React.CSSProperties,
 
     skeletonBlock: { background: 'rgba(255,255,255,0.08)' } as React.CSSProperties,
+
+    exportBtn: {
+        background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+        boxShadow: '0 4px 14px rgba(99,102,241,0.35)',
+        color: '#fff',
+    } as React.CSSProperties,
+    exportInput: {
+        background: 'rgba(255,255,255,0.06)',
+        border: '1px solid rgba(255,255,255,0.1)',
+        color: 'rgba(255,255,255,0.75)',
+        colorScheme: 'dark',
+    } as React.CSSProperties,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -132,6 +162,7 @@ export default function DashboardView({
     availableYears,
     fetchCategoryPercent,
     fetchMonthlyTrend,
+    fetchExport,
 }: Props) {
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [year,    setYear]    = useState('all');
@@ -140,6 +171,12 @@ export default function DashboardView({
     const [pctData,   setPctData]   = useState<CategoryPercentage[]>([]);
     const [trendData, setTrendData] = useState<MonthlySummary[]>([]);
     const [loading,   setLoading]   = useState(true);
+
+    // Export state — date inputs pre-filled from the current scope
+    const [exportFrom, setExportFrom] = useState('');
+    const [exportTo,   setExportTo]   = useState('');
+    const [exporting,  setExporting]  = useState(false);
+    const [exportError, setExportError] = useState('');
 
     // Single effect — both API calls share the same year/month scope
     // Both callbacks are stable (useCallback in hook), so this fires only
@@ -161,7 +198,39 @@ export default function DashboardView({
         const val = e.target.value;
         setYear(val);
         if (val === 'all') setMonth('all');
+        // Pre-fill export date range to match the newly selected scope
+        setExportFrom(toIsoDate(val, 'all', 'from'));
+        setExportTo(toIsoDate(val, 'all', 'to'));
     }, []);
+
+    const handleMonthChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+        const val = e.target.value;
+        setMonth(val);
+        // Re-sync export bounds when month changes
+        setExportFrom(toIsoDate(year, val, 'from'));
+        setExportTo(toIsoDate(year, val, 'to'));
+    }, [year]);
+
+    const handleExportFromChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setExportFrom(e.target.value);
+        setExportError('');
+    }, []);
+
+    const handleExportToChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setExportTo(e.target.value);
+        setExportError('');
+    }, []);
+
+    const handleExport = useCallback(async () => {
+        if (exportFrom && exportTo && exportFrom > exportTo) {
+            setExportError('"From" date must be before "To" date.');
+            return;
+        }
+        setExportError('');
+        setExporting(true);
+        await fetchExport(exportFrom, exportTo);
+        setExporting(false);
+    }, [fetchExport, exportFrom, exportTo]);
 
     // ---------------------------------------------------------------------------
     // Derived: category stats — recomputes only when categoryFilter or pctData changes
@@ -233,7 +302,7 @@ export default function DashboardView({
                     {/* Month — disabled until a year is chosen */}
                     <select
                         value={month}
-                        onChange={e => setMonth(e.target.value)}
+                        onChange={handleMonthChange}
                         disabled={year === 'all'}
                         className="rounded-xl px-3 py-2 text-xs font-semibold outline-none appearance-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                         style={month !== 'all' ? STYLES.selectActive : STYLES.select}
@@ -254,6 +323,43 @@ export default function DashboardView({
                         />
                     </div>
                 </div>
+            </div>
+
+            {/* ── Export CSV ─────────────────────────────────────────────── */}
+            <div className="space-y-2">
+                <div className="flex flex-wrap gap-2 items-center">
+                    <span className="text-xs font-semibold uppercase tracking-widest" style={STYLES.sectionLabel}>
+                        Export CSV
+                    </span>
+                    <input
+                        type="date"
+                        value={exportFrom}
+                        onChange={handleExportFromChange}
+                        className="rounded-xl px-3 py-2 text-xs font-semibold outline-none"
+                        style={STYLES.exportInput}
+                        aria-label="Export from date"
+                    />
+                    <span className="text-xs" style={STYLES.sectionLabel}>→</span>
+                    <input
+                        type="date"
+                        value={exportTo}
+                        onChange={handleExportToChange}
+                        className="rounded-xl px-3 py-2 text-xs font-semibold outline-none"
+                        style={STYLES.exportInput}
+                        aria-label="Export to date"
+                    />
+                    <button
+                        onClick={handleExport}
+                        disabled={exporting}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                        style={STYLES.exportBtn}
+                    >
+                        {exporting ? '⏳ Exporting…' : '⬇ Download'}
+                    </button>
+                </div>
+                {exportError && (
+                    <p className="text-xs font-semibold" style={{ color: '#f87171' }}>{exportError}</p>
+                )}
             </div>
 
             {/* ── Loading skeleton ───────────────────────────────────────── */}

@@ -1,8 +1,8 @@
 import { useMemo, useEffect } from 'react';
 import type {
     User, TabName,
-    ExpenseActions, CategoryActions, ExpenseViewerActions,
-    NewExpense, UpdateExpensePayload,
+    ExpenseActions, CategoryActions, ExpenseViewerActions, RecurringActions,
+    NewExpense, UpdateExpensePayload, NewRecurringExpense,
 } from './types';
 import { TABS } from './types';
 import { apiFetch } from './api';
@@ -11,6 +11,7 @@ import AddExpense    from './views/AddExpense';
 import Categories    from './views/Categories';
 import ExpenseViewer from './views/ExpenseViewer';
 import DashboardView from './views/DashboardView';
+import RecurringView from './views/RecurringView';
 import { useState } from 'react';
 
 interface Props {
@@ -23,6 +24,7 @@ const TAB_ICONS: Record<TabName, string> = {
     add:        '➕',
     categories: '🏷️',
     viewer:     '📋',
+    recurring:  '🔁',
 };
 
 const TAB_LABELS: Record<TabName, string> = {
@@ -30,6 +32,7 @@ const TAB_LABELS: Record<TabName, string> = {
     add:        'New Expense',
     categories: 'Categories',
     viewer:     'My Expenses',
+    recurring:  'Recurring',
 };
 
 // ---------------------------------------------------------------------------
@@ -52,7 +55,11 @@ const STYLES = {
 
 export default function Dashboard({ user, onLogout }: Props) {
     const [activeTab, setActiveTab] = useState<TabName>('dashboard');
-    const { expenses, categories, availableYears, fetchData, fetchCategoryPercent, fetchMonthlyTrend } = useExpenseData();
+    const {
+        expenses, categories, availableYears, recurringItems,
+        fetchData, fetchRecurring,
+        fetchCategoryPercent, fetchMonthlyTrend, fetchExport,
+    } = useExpenseData();
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -93,6 +100,35 @@ export default function Dashboard({ user, onLogout }: Props) {
             await apiFetch(`/api/expenses/delete?${params}`, { method: 'DELETE' });
         },
     }), []);
+
+    const recurringActions = useMemo<RecurringActions>(() => ({
+        addRecurring: async (payload: NewRecurringExpense) => {
+            const res = await apiFetch('/api/recurring', { method: 'POST', body: JSON.stringify(payload) });
+            return res.ok;
+        },
+        updateRecurring: async (id: number, payload: NewRecurringExpense) => {
+            const res = await apiFetch(`/api/recurring?id=${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+            return res.ok;
+        },
+        deleteRecurring: async (ids: number[]) => {
+            const params = ids.map(id => `id=${id}`).join('&');
+            await apiFetch(`/api/recurring/delete?${params}`, { method: 'DELETE' });
+        },
+        dumpRecurring: async (ids: number[], date: string) => {
+            const res = await apiFetch('/api/recurring/dump', {
+                method: 'POST',
+                body: JSON.stringify({ ids, date }),
+            });
+            if (!res.ok) return null;
+            return res.json();
+        },
+    }), []);
+
+    // Load recurring templates when the user first visits that tab.
+    // fetchRecurring is stable so this only fires once per tab-open.
+    useEffect(() => {
+        if (activeTab === 'recurring') fetchRecurring();
+    }, [activeTab, fetchRecurring]);
 
     return (
         <div className="min-h-screen" style={STYLES.root}>
@@ -152,7 +188,8 @@ export default function Dashboard({ user, onLogout }: Props) {
                     {activeTab === 'add'        && <AddExpense    categories={categories} actions={expenseActions}           onSaved={fetchData} />}
                     {activeTab === 'categories' && <Categories    categories={categories} actions={categoryActions}           onChanged={fetchData} />}
                     {activeTab === 'viewer'     && <ExpenseViewer expenses={expenses}     categories={categories} actions={expenseViewerActions} onChanged={fetchData} />}
-                    {activeTab === 'dashboard'  && <DashboardView categories={categories} availableYears={availableYears} fetchCategoryPercent={fetchCategoryPercent} fetchMonthlyTrend={fetchMonthlyTrend} />}
+                    {activeTab === 'dashboard'  && <DashboardView categories={categories} availableYears={availableYears} fetchCategoryPercent={fetchCategoryPercent} fetchMonthlyTrend={fetchMonthlyTrend} fetchExport={fetchExport} />}
+                    {activeTab === 'recurring'  && <RecurringView items={recurringItems} categories={categories} actions={recurringActions} onChanged={fetchRecurring} onDumped={fetchData} />}
                 </div>
 
             </div>
