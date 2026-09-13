@@ -12,14 +12,16 @@
 //   - selectAll placed after `items` prop (no ordering hazard).
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import type { Category, RecurringExpense, RecurringActions, DumpResult, NewRecurringExpense } from '../types';
+import type { Category, RecurringExpense, RecurringActions, RecurringSummary, DumpResult, NewRecurringExpense } from '../types';
 import SelectAllCheckbox from '../components/SelectAllCheckbox';
 
 interface Props {
     items:      RecurringExpense[];
     categories: Category[];
     actions:    RecurringActions;
-    onChanged:  () => void;   // reload recurring list
+    /** Server-computed count + total from GET /api/recurring/summary */
+    summary:    RecurringSummary;
+    onChanged:  () => void;   // reload recurring list + summary
     onDumped:   () => void;   // reload main expense list after a dump
 }
 
@@ -109,6 +111,14 @@ const STYLES = {
         color: 'rgba(255,255,255,0.35)',
         border: '1px solid rgba(255,255,255,0.08)',
     } as React.CSSProperties,
+
+    totalBar: {
+        background: 'rgba(99,102,241,0.08)',
+        border: '1px solid rgba(99,102,241,0.2)',
+    } as React.CSSProperties,
+    totalLabel: { color: 'rgba(165,180,252,0.7)' } as React.CSSProperties,
+    totalAmt:   { color: '#a5b4fc' } as React.CSSProperties,
+    selectedAmt: { color: '#34d399' } as React.CSSProperties,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -133,7 +143,7 @@ function todayIso(): string {
 // Component
 // ---------------------------------------------------------------------------
 
-export default function RecurringView({ items, categories, actions, onChanged, onDumped }: Props) {
+export default function RecurringView({ items, categories, actions, summary, onChanged, onDumped }: Props) {
 
     // ── Add-form state ───────────────────────────────────────────────────────
     const [newAmount, setNewAmount]     = useState('');
@@ -262,6 +272,14 @@ export default function RecurringView({ items, categories, actions, onChanged, o
     const idToName = useMemo(
         () => new Map(items.map(i => [i.id, `${i.description || i.categoryName} (₹${i.amount})`])),
         [items],
+    );
+
+    // Selected total is computed client-side from live checkbox state.
+    // Grand total comes from the server via the `summary` prop (avoids
+    // summing all rows in the browser; stays accurate after CRUD operations).
+    const selectedTotal = useMemo(
+        () => items.filter(i => selected.has(i.id)).reduce((sum, i) => sum + i.amount, 0),
+        [items, selected],
     );
 
     // ── Render ───────────────────────────────────────────────────────────────
@@ -475,6 +493,30 @@ export default function RecurringView({ items, categories, actions, onChanged, o
                     </div>
                 ))}
             </div>
+
+            {/* ── Grand total bar (server-driven) ──────────────────────────── */}
+            {summary.count > 0 && (
+                <div className="flex items-center justify-between rounded-xl px-5 py-3 mb-6" style={STYLES.totalBar}>
+                    <div className="flex items-center gap-3">
+                        <span className="text-xs font-semibold uppercase tracking-widest" style={STYLES.totalLabel}>
+                            Monthly Total
+                        </span>
+                        <span className="text-xs font-semibold" style={STYLES.totalLabel}>
+                            {summary.count} template{summary.count !== 1 ? 's' : ''}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        {selected.size > 0 && (
+                            <span className="text-xs font-semibold" style={STYLES.selectedAmt}>
+                                {selected.size} selected · ₹{selectedTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </span>
+                        )}
+                        <span className="text-sm font-black" style={STYLES.totalAmt}>
+                            ₹{summary.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                    </div>
+                </div>
+            )}
 
             {/* ── Dump panel — only shown when at least one item is selected ── */}
             {selected.size > 0 && (

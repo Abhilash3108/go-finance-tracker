@@ -67,8 +67,9 @@ go-finance-tracker/
     ├── types.ts         — interfaces, action contracts, TABS order
     ├── hooks/
     │   ├── useExpenseData.ts    — centralised read hook (expenses, categories,
-    │   │                          availableYears, recurringItems, fetchCategoryPercent,
-    │   │                          fetchMonthlyTrend, fetchRecurring, fetchExport)
+    │   │                          availableYears, recurringItems, recurringSummary,
+    │   │                          fetchCategoryPercent, fetchMonthlyTrend,
+    │   │                          fetchRecurring, fetchRecurringSummary, fetchExport)
     │   └── useClickOutside.ts  — generic outside-click hook
     ├── components/
     │   └── SelectAllCheckbox.tsx — tri-state select-all (unchecked/indeterminate/checked)
@@ -119,7 +120,7 @@ Controlled by `TABS` in `frontend/src/types.ts`. Current order: Overview → New
 Views **never** import `apiFetch`. All fetch callbacks are injected as props from `Dashboard.tsx` (sourced via `useExpenseData`). This keeps views independently testable with mocks.
 
 ### `useExpenseData` hook
-Single source of truth for read-only server data. Returns `expenses`, `categories`, `availableYears` (derived via `useMemo`), `recurringItems`, plus stable callbacks: `fetchCategoryPercent(year, month)`, `fetchMonthlyTrend(year, month)`, `fetchRecurring()` (lazy — not called on boot, triggered when the Recurring tab is first opened), and `fetchExport(from, to)` (builds query params, fetches blob, triggers browser download). Pass `'all'` to skip a year/month filter.
+Single source of truth for read-only server data. Returns `expenses`, `categories`, `availableYears` (derived via `useMemo`), `recurringItems`, `recurringSummary` (`{ count, total }` from `GET /api/recurring/summary`), plus stable callbacks: `fetchCategoryPercent(year, month)`, `fetchMonthlyTrend(year, month)`, `fetchRecurring()` (lazy — not called on boot, triggered when the Recurring tab is first opened), `fetchRecurringSummary()` (fetches server-computed count + total; called in parallel with `fetchRecurring` via `Promise.all`), and `fetchExport(from, to)` (builds query params, fetches blob, triggers browser download). Pass `'all'` to skip a year/month filter.
 
 ### CSV export
 `fetchExport(from, to)` in `useExpenseData` calls `GET /api/expenses/export?from=YYYY-MM-DD&to=YYYY-MM-DD`. The backend streams CSV directly to the response with `Content-Disposition: attachment; filename="expenses_…csv"`. The frontend creates a temporary `<a>` element with a blob object URL, clicks it, then calls `URL.revokeObjectURL` to free memory.

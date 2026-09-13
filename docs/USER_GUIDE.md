@@ -233,6 +233,12 @@ Click the **Edit** button on any row, update the fields, and press **Save**.
 1. Tick individual checkboxes, or use the **select-all checkbox** in the header to select all templates.
 2. Click **Delete (N)** to remove them.
 
+### Grand total bar
+
+Below the template list a summary bar shows the **total monthly amount** across all your recurring templates and the number of templates. This is computed by the server — it is always accurate, even immediately after adding or deleting a template.
+
+When you have one or more templates selected, the bar also shows the **selected subtotal** (computed locally from the checked rows) next to the overall total.
+
 ### Dump templates into real expenses
 
 When you want to log this month's recurring expenses:

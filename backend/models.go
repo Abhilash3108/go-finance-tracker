@@ -48,6 +48,12 @@ type DumpResult struct {
 	Warnings []int `json:"warnings"` // IDs of items that already had an expense this month
 }
 
+// RecurringSummary is returned by GET /api/recurring/summary.
+type RecurringSummary struct {
+	Count int     `json:"count"`
+	Total float64 `json:"total"`
+}
+
 type Result struct {
 	Year         int     `json:"year"`
 	CategoryName string  `json:"categoryName"`

@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import type { Expense, Category, CategoryPercentage, MonthlySummary, RecurringExpense } from '../types';
+import type { Expense, Category, CategoryPercentage, MonthlySummary, RecurringExpense, RecurringSummary } from '../types';
 import { apiFetch } from '../api';
 
 export interface ExpenseData {
@@ -7,8 +7,10 @@ export interface ExpenseData {
     categories:             Category[];
     availableYears:         string[];
     recurringItems:         RecurringExpense[];
+    recurringSummary:       RecurringSummary;
     fetchData:              () => Promise<void>;
     fetchRecurring:         () => Promise<void>;
+    fetchRecurringSummary:  () => Promise<void>;
     fetchCategoryPercent:   (year: string, month: string) => Promise<CategoryPercentage[]>;
     fetchMonthlyTrend:      (year: string, month: string) => Promise<MonthlySummary[]>;
     fetchExport:            (from: string, to: string) => Promise<void>;
@@ -22,9 +24,10 @@ export interface ExpenseData {
  * imports apiFetch directly — satisfying the Dependency Inversion principle.
  */
 export function useExpenseData(): ExpenseData {
-    const [expenses,        setExpenses]        = useState<Expense[]>([]);
-    const [categories,      setCategories]      = useState<Category[]>([]);
-    const [recurringItems,  setRecurringItems]  = useState<RecurringExpense[]>([]);
+    const [expenses,          setExpenses]          = useState<Expense[]>([]);
+    const [categories,        setCategories]        = useState<Category[]>([]);
+    const [recurringItems,    setRecurringItems]    = useState<RecurringExpense[]>([]);
+    const [recurringSummary,  setRecurringSummary]  = useState<RecurringSummary>({ count: 0, total: 0 });
 
     const fetchData = useCallback(async () => {
         try {
@@ -90,6 +93,17 @@ export function useExpenseData(): ExpenseData {
         }
     }, []);
 
+    // Fetch the server-computed count + total for the recurring tab summary bar.
+    // Called in parallel with fetchRecurring so both resolve in one round-trip.
+    const fetchRecurringSummary = useCallback(async () => {
+        try {
+            const res = await apiFetch('/api/recurring/summary');
+            if (res.ok) setRecurringSummary(await res.json());
+        } catch (err) {
+            console.error('fetchRecurringSummary error:', err);
+        }
+    }, []);
+
     // Triggers a CSV download for the given date range.
     // 'from' / 'to' are "YYYY-MM-DD" strings, or '' to omit the bound.
     const fetchExport = useCallback(async (from: string, to: string): Promise<void> => {
@@ -115,8 +129,8 @@ export function useExpenseData(): ExpenseData {
     }, []);
 
     return {
-        expenses, categories, availableYears, recurringItems,
-        fetchData, fetchRecurring,
+        expenses, categories, availableYears, recurringItems, recurringSummary,
+        fetchData, fetchRecurring, fetchRecurringSummary,
         fetchCategoryPercent, fetchMonthlyTrend, fetchExport,
     };
 }

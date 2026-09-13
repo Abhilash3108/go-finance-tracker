@@ -56,8 +56,8 @@ const STYLES = {
 export default function Dashboard({ user, onLogout }: Props) {
     const [activeTab, setActiveTab] = useState<TabName>('dashboard');
     const {
-        expenses, categories, availableYears, recurringItems,
-        fetchData, fetchRecurring,
+        expenses, categories, availableYears, recurringItems, recurringSummary,
+        fetchData, fetchRecurring, fetchRecurringSummary,
         fetchCategoryPercent, fetchMonthlyTrend, fetchExport,
     } = useExpenseData();
 
@@ -122,13 +122,16 @@ export default function Dashboard({ user, onLogout }: Props) {
             if (!res.ok) return null;
             return res.json();
         },
-    }), []);
+        fetchRecurringSummary,
+    }), [fetchRecurringSummary]);
 
-    // Load recurring templates when the user first visits that tab.
-    // fetchRecurring is stable so this only fires once per tab-open.
+    // Load recurring templates + summary when the user first visits that tab.
+    // Both fetches are stable callbacks — they fire in parallel, one round-trip.
     useEffect(() => {
-        if (activeTab === 'recurring') fetchRecurring();
-    }, [activeTab, fetchRecurring]);
+        if (activeTab === 'recurring') {
+            Promise.all([fetchRecurring(), fetchRecurringSummary()]);
+        }
+    }, [activeTab, fetchRecurring, fetchRecurringSummary]);
 
     return (
         <div className="min-h-screen" style={STYLES.root}>
@@ -189,7 +192,7 @@ export default function Dashboard({ user, onLogout }: Props) {
                     {activeTab === 'categories' && <Categories    categories={categories} actions={categoryActions}           onChanged={fetchData} />}
                     {activeTab === 'viewer'     && <ExpenseViewer expenses={expenses}     categories={categories} actions={expenseViewerActions} onChanged={fetchData} />}
                     {activeTab === 'dashboard'  && <DashboardView categories={categories} availableYears={availableYears} fetchCategoryPercent={fetchCategoryPercent} fetchMonthlyTrend={fetchMonthlyTrend} fetchExport={fetchExport} />}
-                    {activeTab === 'recurring'  && <RecurringView items={recurringItems} categories={categories} actions={recurringActions} onChanged={fetchRecurring} onDumped={fetchData} />}
+                    {activeTab === 'recurring'  && <RecurringView items={recurringItems} categories={categories} actions={recurringActions} summary={recurringSummary} onChanged={() => { fetchRecurring(); fetchRecurringSummary(); }} onDumped={fetchData} />}
                 </div>
 
             </div>

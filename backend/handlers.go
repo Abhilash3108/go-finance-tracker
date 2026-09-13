@@ -489,6 +489,29 @@ func getRecurring(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, res, http.StatusOK)
 }
 
+// getRecurringSummary returns the count and total amount of all recurring
+// expense templates for the authenticated user — one aggregation query,
+// no row scanning.
+func getRecurringSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := userIDFromContext(r)
+	var s RecurringSummary
+	err := db.QueryRow(
+		`SELECT COUNT(*), COALESCE(SUM(amount), 0)
+		   FROM recurring_expenses
+		  WHERE user_id = $1`,
+		userID,
+	).Scan(&s.Count, &s.Total)
+	if err != nil {
+		http.Error(w, "Failed to fetch recurring summary", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, s, http.StatusOK)
+}
+
 // createRecurring adds a new recurring expense template.
 func createRecurring(w http.ResponseWriter, r *http.Request) {
 	http.MaxBytesReader(w, r.Body, 1<<20)

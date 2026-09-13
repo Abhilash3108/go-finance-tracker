@@ -272,7 +272,7 @@ frontend/src/
 
 - `App.tsx` — restores session from localStorage on mount; registers the global session-expiry handler; renders `AuthScreen` or `Dashboard`.
 - `Dashboard.tsx` — the only component that calls `apiFetch` directly; owns `expenses`, `categories`, `recurringItems`, and action state; constructs typed action objects and passes them down as props.
-- `useExpenseData` — centralises all read-only data fetching in one stable hook; computes `availableYears` via `useMemo`; exposes `fetchCategoryPercent`, `fetchMonthlyTrend`, `fetchRecurring` (lazy — triggered only when the Recurring tab is first opened), and `fetchExport` (CSV blob download) as stable `useCallback` references.
+- `useExpenseData` — centralises all read-only data fetching in one stable hook; computes `availableYears` via `useMemo`; exposes `fetchCategoryPercent`, `fetchMonthlyTrend`, `fetchRecurring` (lazy — triggered only when the Recurring tab is first opened), `fetchRecurringSummary` (fetches server-computed count + total for the Recurring tab bar, called in parallel with `fetchRecurring`), and `fetchExport` (CSV blob download) as stable `useCallback` references. Also owns `recurringSummary: RecurringSummary` state (`{ count, total }`) which is passed as a prop to `RecurringView`.
 - View components under `views/` — pure UI, zero network dependency. They receive data and action interfaces as props.
 - `SelectAllCheckbox` — single-responsibility reusable component; sets the native `indeterminate` DOM property via `useRef` + `useEffect` (not settable through JSX).
 
@@ -294,7 +294,7 @@ Rendered as: **Overview → New Expense → Categories → My Expenses → Recur
 |---------|-------|-----|
 | `useMemo` | `availableYears`, `trendMax`, `scopeLabel`, category stats, row styles | Avoids recomputing on every render |
 | `useCallback([], [])` | Fetch callbacks, `selectAll`, `deselectAll`, `handleYearChange` | Stable references prevent unnecessary child re-renders |
-| `Promise.all` | `DashboardView` load callback | Parallel fetches for category % and monthly trend |
+| `Promise.all` | `DashboardView` load callback; Recurring tab lazy load | Parallel fetches in one round-trip |
 | `useRef` + `useEffect` | `SelectAllCheckbox` | Native `indeterminate` property not settable via React props |
 | Static style constants | All views | `STYLES` objects defined outside components; never recreated on render |
 
@@ -445,7 +445,7 @@ The React build output (`dist/`) is served by nginx inside the `frontend` contai
 | **Open/Closed** | Adding a new tab requires creating a new file in `views/` and adding one line to `TABS` in `types.ts` — no existing view files change |
 | **Liskov Substitution** | N/A — no class inheritance used |
 | **Interface Segregation** | Each view gets only the action interface it needs (`ExpenseActions`, `CategoryActions`, `ExpenseViewerActions`, `RecurringActions`). `DashboardView` receives `availableYears: string[]` instead of the full `Expense[]` array — only the data it actually needs |
-| **Dependency Inversion** | Views depend on typed action interfaces and injected fetch callbacks (abstractions), never on `apiFetch` (the concrete network implementation). `DashboardView` receives `fetchCategoryPercent`, `fetchMonthlyTrend`, and `fetchExport` as props from `Dashboard.tsx` via `useExpenseData`. `RecurringView` receives `RecurringActions` — no direct network calls |
+| **Dependency Inversion** | Views depend on typed action interfaces and injected fetch callbacks (abstractions), never on `apiFetch` (the concrete network implementation). `DashboardView` receives `fetchCategoryPercent`, `fetchMonthlyTrend`, and `fetchExport` as props from `Dashboard.tsx` via `useExpenseData`. `RecurringView` receives `RecurringActions` and a `summary: RecurringSummary` prop — no direct network calls |
 
 ---
 
@@ -516,10 +516,13 @@ The `from` / `to` parameters on `/api/expenses/export` are `YYYY-MM-DD` date str
 | Method | Path | Query / body | Success response |
 |--------|------|-------------|-----------------|
 | `GET` | `/api/recurring` | — | `200 [RecurringExpense]` ordered by id ASC |
+| `GET` | `/api/recurring/summary` | — | `200 { count: N, total: F }` |
 | `POST` | `/api/recurring` | `{ amount, description, categoryId }` | `201 { id, amount, description, categoryId }` |
 | `PUT` | `/api/recurring` | `?id=N` + `{ amount, description, categoryId }` | `200 { id, amount, description, categoryId }` |
 | `DELETE` | `/api/recurring/delete` | `?id=1&id=2` | `204` |
 | `POST` | `/api/recurring/dump` | `{ ids: [1,2,3], date: "2024-11-01" }` | `200 { added: N, warnings: [id, …] }` |
+
+**`/api/recurring/summary`:** Returns the server-computed count and total monthly amount for all of the user's recurring templates. A single `SELECT COUNT(*), COALESCE(SUM(amount), 0)` query — no rows are transferred to the client just to sum them. `total` is `0.0` when the user has no templates. This endpoint is called in parallel with `GET /api/recurring` when the Recurring tab is first opened, and again after any CRUD operation that changes the template list.
 
 **`RecurringExpense` object:**
 
@@ -534,6 +537,15 @@ The `from` / `to` parameters on `/api/expenses/export` are `YYYY-MM-DD` date str
 ```
 
 **`/api/recurring/dump`:** Inserts the selected recurring templates as real expenses on the given `date`. For each template, the handler checks whether an expense with the same `description`, `category_id`, and calendar month already exists for the user. Matching templates are still inserted; their IDs are returned in the `warnings` array so the client can surface a duplicate notice. `added` is the total number of rows inserted.
+
+**`RecurringSummary` object:**
+
+```json
+{
+  "count": 5,
+  "total": 14200.00
+}
+```
 
 ---
 
@@ -675,4 +687,32 @@ Backend (getMonthlySummary):
   3. SELECT date_trunc('month', e.created_at)::date AS month, SUM(e.amount)
      FROM expenses e WHERE e.user_id = $1 <filter> GROUP BY month ORDER BY month ASC
   4. Returns array ordered oldest → newest (for left-to-right chart rendering)
+```
+
+### Recurring Tab Load
+
+```
+User opens Recurring tab for the first time:
+
+Dashboard useEffect (activeTab === 'recurring'):
+  1. Promise.all([
+       fetchRecurring(),         → GET /api/recurring
+       fetchRecurringSummary(),  → GET /api/recurring/summary
+     ])
+  2. Both resolve in parallel (one network round-trip)
+     → setRecurringItems(items)         — list state in useExpenseData
+     → setRecurringSummary({ count, total }) — summary state in useExpenseData
+  3. React re-renders RecurringView with updated items + summary prop
+
+Backend (getRecurringSummary):
+  1. userID from JWT context
+  2. SELECT COUNT(*), COALESCE(SUM(amount), 0)
+     FROM recurring_expenses WHERE user_id = $1
+  3. Returns { count: N, total: F } — zero rows transferred for the total bar
+
+RecurringView:
+  - Grand total bar rendered from summary.count / summary.total (server data)
+  - Selected total (checkbox state) computed client-side via useMemo
+  - After any CRUD: onChanged() calls fetchRecurring() + fetchRecurringSummary()
+    in parallel so bar and list stay in sync
 ```

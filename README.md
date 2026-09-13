@@ -67,7 +67,7 @@ Only Caddy's ports 80 and 443 are exposed to the host. Backend and database port
 - **Security headers** — HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy` applied at the Caddy layer
 - **Overview dashboard** — year/month filter, category breakdown with percentage bars, monthly trend bar chart, peak month callout
 - **CSV export** — download all expenses (or a specific date range) as a CSV file directly from the Overview tab
-- **Recurring expenses** — store monthly templates (rent, subscriptions, etc.); dump selected templates into real expenses with one click, with same-month duplicate warnings
+- **Recurring expenses** — store monthly templates (rent, subscriptions, etc.); dump selected templates into real expenses with one click, with same-month duplicate warnings; server-computed grand total bar shows total monthly commitment and selected subtotal at a glance
 - **Bulk operations** — select-all checkbox in Categories, My Expenses, and Recurring tabs for one-click multi-delete
 - **Friendly tab navigation** — Overview · New Expense · Categories · My Expenses · Recurring
 

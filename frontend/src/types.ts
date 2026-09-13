@@ -59,6 +59,11 @@ export interface ExpenseViewerActions {
     deleteExpenses: (ids: number[]) => Promise<void>;
 }
 
+export interface RecurringSummary {
+    count: number;
+    total: number;
+}
+
 export interface RecurringExpense {
     id:           number;
     amount:       number;
@@ -80,8 +85,9 @@ export interface DumpResult {
 
 /** Actions available to the RecurringView. */
 export interface RecurringActions {
-    addRecurring:    (payload: NewRecurringExpense)                    => Promise<boolean>;
-    updateRecurring: (id: number, payload: NewRecurringExpense)        => Promise<boolean>;
-    deleteRecurring: (ids: number[])                                   => Promise<void>;
-    dumpRecurring:   (ids: number[], date: string) => Promise<DumpResult | null>;
+    addRecurring:          (payload: NewRecurringExpense)             => Promise<boolean>;
+    updateRecurring:       (id: number, payload: NewRecurringExpense) => Promise<boolean>;
+    deleteRecurring:       (ids: number[])                            => Promise<void>;
+    dumpRecurring:         (ids: number[], date: string)              => Promise<DumpResult | null>;
+    fetchRecurringSummary: ()                                         => Promise<void>;
 }
