@@ -21,7 +21,19 @@ import (
 const refreshCookieName = "__Host-refresh"
 
 // setRefreshCookie writes the refresh token as an HttpOnly, Secure,
-// SameSite=Strict cookie so it is never accessible to JavaScript.
+// SameSite=Lax cookie so it is never accessible to JavaScript.
+//
+// SameSite=Lax (not Strict) is intentional:
+//   - Strict blocks the cookie on ALL navigations that originate outside the
+//     site (bookmarks, address bar, links from other tabs). This causes the
+//     session to appear expired every time the user reopens the app cold.
+//   - Lax blocks the cookie on cross-site sub-resource requests and POSTs
+//     (the only vectors CSRF exploits), but allows it on top-level GET
+//     navigations — so session restore on app open works correctly.
+//   - CSRF is not a concern for this app's auth scheme regardless: the
+//     protected data endpoints require an Authorization: Bearer header, which
+//     browsers never send automatically — only the cookie travels automatically.
+//
 // __Host- prefix requires Secure + no Domain + Path=/ — enforced by browsers.
 func setRefreshCookie(w http.ResponseWriter, token string, exp time.Time) {
 	http.SetCookie(w, &http.Cookie{
@@ -31,7 +43,7 @@ func setRefreshCookie(w http.ResponseWriter, token string, exp time.Time) {
 		Expires:  exp,
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 
@@ -45,7 +57,7 @@ func clearRefreshCookie(w http.ResponseWriter) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 

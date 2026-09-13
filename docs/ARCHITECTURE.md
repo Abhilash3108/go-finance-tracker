@@ -205,14 +205,14 @@ const (
 
 **Cookie attributes:**
 ```
-Set-Cookie: __Host-refresh=<token>; Path=/; Expires=<7d>; HttpOnly; Secure; SameSite=Strict
+Set-Cookie: __Host-refresh=<token>; Path=/; Expires=<7d>; HttpOnly; Secure; SameSite=Lax
 ```
 
 | Attribute | Effect |
 |-----------|--------|
 | `HttpOnly` | JavaScript (`document.cookie`, `localStorage`) cannot read it |
 | `Secure` | Only sent over HTTPS — enforced by Caddy in this stack |
-| `SameSite=Strict` | Not sent on cross-site requests — CSRF from a third-party site is blocked |
+| `SameSite=Lax` | Blocked on cross-site sub-resource requests and POSTs (CSRF vectors). Allowed on top-level navigations so session restore works when the user reopens the app from a bookmark or new tab. `Strict` would break this — it blocks the cookie on any navigation originating outside the site. |
 | `__Host-` prefix | Browser enforces `Secure` + no `Domain` + `Path=/` |
 
 **Proactive refresh:** `apiFetch` in `api.ts` checks whether the access token is within 60 seconds of its `exp` timestamp and proactively refreshes before sending the request. The refresh call sends no body — the browser attaches the cookie automatically via `credentials: 'same-origin'`. This prevents a mid-flight expiry.
@@ -664,7 +664,7 @@ CREATE INDEX idx_recurring_category_id ON recurring_expenses(category_id);
 Browser  →  POST /api/auth/login { email, password }
             credentials: 'same-origin'  ← browser will store the cookie from the response
          ←  200 { accessToken (15 min), user }
-            Set-Cookie: __Host-refresh=<token>; HttpOnly; Secure; SameSite=Strict; Path=/; Expires=<7d>
+            Set-Cookie: __Host-refresh=<token>; HttpOnly; Secure; SameSite=Lax; Path=/; Expires=<7d>
 
 Backend:
   1. SELECT user WHERE email = ?
