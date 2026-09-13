@@ -160,7 +160,7 @@ At startup, `db.go` calls `m.Up()` which is a no-op if all migrations have alrea
 | Token | TTL | Transport | Purpose |
 |-------|-----|-----------|---------|
 | Access token | **15 minutes** | `Authorization: Bearer <token>` on every API call | Short TTL limits exposure window if intercepted |
-| Refresh token | **7 days** | Body of `POST /api/auth/refresh` only | Exchanges for a new token pair without re-entering a password |
+| Refresh token | **7 days** | `__Host-refresh` HttpOnly cookie (set by server, sent automatically by browser) | Never readable by JavaScript — XSS cannot steal it |
 
 These constants are defined in `models.go`:
 
@@ -174,12 +174,13 @@ const (
 **Claims structure:**
 
 ```json
-// Access token payload
+// Access token payload — now includes email so session restore needs no extra round-trip
 {
-  "sub":  42,
-  "type": "access",
-  "iat":  1700000000,
-  "exp":  1700000900
+  "sub":   42,
+  "email": "user@example.com",
+  "type":  "access",
+  "iat":   1700000000,
+  "exp":   1700000900
 }
 
 // Refresh token payload
@@ -196,9 +197,25 @@ const (
 
 **Signing algorithm:** `HS256` (HMAC-SHA256). Symmetric signing is appropriate for a single-server deployment where the same process both signs and verifies.
 
-**Client-side storage:** Tokens are stored in `localStorage` under the keys `finance_access_token` and `finance_refresh_token`.
+**Client-side storage:**
+- Access token: `localStorage` key `finance_access_token` — short-lived (15 min), acceptable XSS exposure window.
+- Refresh token: `__Host-refresh` HttpOnly cookie — **never stored in or readable by JavaScript**. The browser sends it automatically on requests to the same origin.
 
-**Proactive refresh:** `apiFetch` in `api.ts` checks whether the access token is within 60 seconds of its `exp` timestamp and proactively refreshes before sending the request. This prevents a mid-flight expiry.
+**`__Host-` cookie prefix** enforces three browser-level rules regardless of server config: `Secure` attribute must be set, `Domain` attribute must be absent, `Path` must be `/`. This prevents a compromised subdomain from setting or overwriting the cookie.
+
+**Cookie attributes:**
+```
+Set-Cookie: __Host-refresh=<token>; Path=/; Expires=<7d>; HttpOnly; Secure; SameSite=Strict
+```
+
+| Attribute | Effect |
+|-----------|--------|
+| `HttpOnly` | JavaScript (`document.cookie`, `localStorage`) cannot read it |
+| `Secure` | Only sent over HTTPS — enforced by Caddy in this stack |
+| `SameSite=Strict` | Not sent on cross-site requests — CSRF from a third-party site is blocked |
+| `__Host-` prefix | Browser enforces `Secure` + no `Domain` + `Path=/` |
+
+**Proactive refresh:** `apiFetch` in `api.ts` checks whether the access token is within 60 seconds of its `exp` timestamp and proactively refreshes before sending the request. The refresh call sends no body — the browser attaches the cookie automatically via `credentials: 'same-origin'`. This prevents a mid-flight expiry.
 
 ---
 
@@ -217,10 +234,10 @@ ALTER TABLE users
 
 **Lifecycle:**
 
-1. **Login / Register:** Backend generates a refresh token, computes `SHA-256(token)` as a hex string, stores it in `users.refresh_token_hash`.
-2. **`/api/auth/refresh`:** Backend verifies JWT signature → then checks `SHA-256(incoming token) == stored hash`. If the user has logged out, `stored_hash` is NULL → 401.
+1. **Login / Register:** Backend generates a refresh token, computes `SHA-256(token)` as a hex string, stores it in `users.refresh_token_hash`, sets the `__Host-refresh` HttpOnly cookie in the response.
+2. **`/api/auth/refresh`:** Backend reads the token from the `__Host-refresh` cookie (not the request body) → verifies JWT signature → checks `SHA-256(incoming token) == stored hash`. If the user has logged out, `stored_hash` is NULL → 401. Sets a new cookie with the rotated token.
 3. **Rotation:** On every successful refresh, the old hash is replaced with the new token's hash atomically in the same `UPDATE`.
-4. **Logout:** Backend sets `refresh_token_hash = NULL`. Any subsequent refresh attempt fails with 401.
+4. **Logout:** Backend reads the token from the cookie, sets `refresh_token_hash = NULL`, and clears the cookie (`MaxAge: -1`). Any subsequent refresh attempt fails with 401.
 
 **Why SHA-256 hash, not the raw token:** The hash is a one-way commitment. An attacker who reads the database cannot reconstruct the token.
 
@@ -232,6 +249,33 @@ CREATE INDEX IF NOT EXISTS idx_users_refresh_token_hash ON users(refresh_token_h
 ```
 
 The index covers only rows where a token exists. Logged-out users (NULL hash) are excluded, keeping the index small.
+
+---
+
+## Rate Limiting — Brute-Force Protection
+
+Login and registration endpoints are wrapped with `rateLimitMiddleware` in `middleware.go`.
+
+**Design:**
+
+| Setting | Value |
+|---------|-------|
+| Window | 5 minutes (sliding) |
+| Max attempts | 10 per IP per window |
+| Response when exceeded | `429 Too Many Requests` |
+| Key | Client IP — reads `X-Forwarded-For` (set by Caddy) first, falls back to `RemoteAddr` |
+| Storage | In-memory `map[string]*ipEntry` guarded by `sync.Mutex` |
+| Cleanup | Background goroutine runs every 10 minutes and deletes entries whose window has passed — prevents unbounded memory growth on free-tier |
+
+**Why count all attempts, not just failures:** bcrypt makes each attempt ~100 ms. Counting only failures lets an attacker pipeline requests up to the limit before the counter triggers. Counting every request ensures the window applies from the first attempt.
+
+**Routes protected:**
+```
+POST /api/auth/login     ← rate limited
+POST /api/auth/register  ← rate limited
+POST /api/auth/refresh   ← not limited (token already required; cookie prevents replay)
+POST /api/auth/logout    ← not limited
+```
 
 ---
 
@@ -270,7 +314,7 @@ frontend/src/
 
 **Component responsibilities:**
 
-- `App.tsx` — restores session from localStorage on mount; registers the global session-expiry handler; renders `AuthScreen` or `Dashboard`.
+- `App.tsx` — restores session on mount: decodes user from the access token in `localStorage`; if expired, calls `attemptRefresh` which sends the HttpOnly cookie silently — no body needed. Registers the global session-expiry handler. Renders `AuthScreen` or `Dashboard`.
 - `Dashboard.tsx` — the only component that calls `apiFetch` directly; owns `expenses`, `categories`, `recurringItems`, and action state; constructs typed action objects and passes them down as props.
 - `useExpenseData` — centralises all read-only data fetching in one stable hook; computes `availableYears` via `useMemo`; exposes `fetchCategoryPercent`, `fetchMonthlyTrend`, `fetchRecurring` (lazy — triggered only when the Recurring tab is first opened), `fetchRecurringSummary` (fetches server-computed count + total for the Recurring tab bar, called in parallel with `fetchRecurring`), and `fetchExport` (CSV blob download) as stable `useCallback` references. Also owns `recurringSummary: RecurringSummary` state (`{ count, total }`) which is passed as a prop to `RecurringView`.
 - View components under `views/` — pure UI, zero network dependency. They receive data and action interfaces as props.
@@ -618,19 +662,24 @@ CREATE INDEX idx_recurring_category_id ON recurring_expenses(category_id);
 
 ```
 Browser  →  POST /api/auth/login { email, password }
-         ←  200 { accessToken (15 min), refreshToken (7 days), user }
+            credentials: 'same-origin'  ← browser will store the cookie from the response
+         ←  200 { accessToken (15 min), user }
+            Set-Cookie: __Host-refresh=<token>; HttpOnly; Secure; SameSite=Strict; Path=/; Expires=<7d>
 
 Backend:
   1. SELECT user WHERE email = ?
   2. bcrypt.CompareHashAndPassword(stored_hash, incoming_password)
   3. issueTokenPair(userID, email):
-       a. Sign access JWT  (type=access,  exp=now+15m)
-       b. Sign refresh JWT (type=refresh, exp=now+7d)
+       a. Sign access JWT  (type=access,  sub, email, exp=now+15m)
+       b. Sign refresh JWT (type=refresh, sub, email, exp=now+7d)
        c. UPDATE users SET refresh_token_hash = SHA256(refreshToken),
                            refresh_token_exp  = now+7d
-       d. Return both tokens
+       d. Return accessToken, refreshToken, exp
+  4. setRefreshCookie(w, refreshToken, exp)   ← HttpOnly cookie, never in JSON body
+  5. jsonResponse { accessToken, user }
 
-Browser stores both in localStorage.
+Browser stores accessToken in localStorage.
+Refresh token is stored ONLY in the HttpOnly cookie — JS cannot read it.
 ```
 
 ### Authenticated Request with Proactive Refresh
@@ -640,12 +689,14 @@ apiFetch('/api/expenses'):
   1. Read accessToken from localStorage
   2. Decode JWT payload, check exp - 60s
      a. Not expired → add Authorization: Bearer header, send request
-     b. Near/past expiry → POST /api/auth/refresh { refreshToken }
-        ← 200 { new accessToken, new refreshToken }
-        → save new tokens, retry original request
+     b. Near/past expiry → POST /api/auth/refresh  (no body)
+           credentials: 'same-origin' — browser sends __Host-refresh cookie automatically
+        ← 200 { new accessToken }
+           Set-Cookie: __Host-refresh=<new token>; HttpOnly; ...
+        → saveAccessToken(newAccess), retry original request
 
 On 401 from the API (reactive path):
-  1. attemptRefresh() → new token pair
+  1. attemptRefresh() → new access token (cookie rotation happens server-side)
   2. Retry request once with new accessToken
   3. If refresh also fails → clearTokens(), call onSessionExpired()
      → App.tsx resets user state → AuthScreen shown
@@ -654,17 +705,20 @@ On 401 from the API (reactive path):
 ### Refresh Token Validation
 
 ```
-POST /api/auth/refresh { refreshToken }
+POST /api/auth/refresh   (no JSON body — token arrives via HttpOnly cookie)
 
 Backend:
-  1. jwt.ParseWithClaims → verify HS256 signature + expiry
-  2. Assert claims["type"] == "refresh"
-  3. SELECT refresh_token_hash, refresh_token_exp FROM users WHERE id = sub
-  4. Compare SHA256(incoming) == stored_hash
+  1. r.Cookie("__Host-refresh") → read token from cookie
+     → cookie missing or empty → 401 Unauthorized
+  2. jwt.ParseWithClaims → verify HS256 signature + expiry
+  3. Assert claims["type"] == "refresh"
+  4. SELECT refresh_token_hash, refresh_token_exp FROM users WHERE id = sub
+  5. Compare SHA256(incoming) == stored_hash
      → mismatch or NULL → 401 Unauthorized
-  5. Issue new token pair
-  6. UPDATE users SET refresh_token_hash = SHA256(newRefreshToken)
-  7. Return { accessToken, refreshToken }
+  6. Issue new token pair (issueTokenPair)
+  7. UPDATE users SET refresh_token_hash = SHA256(newRefreshToken)
+  8. setRefreshCookie(w, newRefreshToken, exp)   ← rotate the cookie
+  9. Return { accessToken }   ← no refreshToken in JSON body
 ```
 
 ### Overview Dashboard Data Load

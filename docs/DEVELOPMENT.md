@@ -116,6 +116,15 @@ docker compose logs --tail 50 --follow
 ### Tab order
 Controlled by `TABS` in `frontend/src/types.ts`. Current order: Overview → New Expense → Categories → My Expenses → Recurring.
 
+### Token storage model
+- **Access token** — `localStorage` key `finance_access_token`. Read by `api.ts`; decoded client-side to restore user identity without a round-trip.
+- **Refresh token** — `__Host-refresh` HttpOnly cookie set by the server. JavaScript never reads or writes it. The browser sends it automatically on `POST /api/auth/refresh` via `credentials: 'same-origin'`. This means XSS cannot steal the long-lived token.
+- Login/register responses return `{ accessToken, user }` only — no `refreshToken` in the JSON body.
+- `App.tsx` calls `attemptRefresh()` with no body on startup if the access token is expired; the cookie is sent automatically.
+
+### Rate limiting
+`rateLimitMiddleware` in `middleware.go` wraps `/api/auth/login` and `/api/auth/register`. 10 attempts per IP per 5-minute window; returns `429` when exceeded. Reads `X-Forwarded-For` for the real client IP behind Caddy. Background goroutine cleans stale entries every 10 minutes.
+
 ### Data fetching — Dependency Inversion
 Views **never** import `apiFetch`. All fetch callbacks are injected as props from `Dashboard.tsx` (sourced via `useExpenseData`). This keeps views independently testable with mocks.
 
@@ -135,8 +144,8 @@ Tri-state checkbox in `components/SelectAllCheckbox.tsx`. Sets the native `indet
 
 ## Adding a New API Endpoint
 
-1. **Handler** in `backend/handlers.go` — call `userIDFromContext(r)`, use `buildFilter` if year/month filtering is needed, respond with `jsonResponse`.
-2. **Route** in `backend/main.go` — `mux.Handle("/api/...", auth(myHandler))`.
+1. **Handler** in `backend/handlers.go` — call `userIDFromContext(r)`, use `buildFilter` if year/month filtering is needed, respond with `jsonResponse`. Add `http.MaxBytesReader(w, r.Body, 1<<20)` at the top of any POST/PUT handler.
+2. **Route** in `backend/main.go` — `mux.Handle("/api/...", auth(myHandler))`. For a new public auth endpoint, wrap with `rateLimitMiddleware(handler)` instead.
 3. **Type** in `frontend/src/types.ts` — add the response interface.
 4. **Fetch callback** in `useExpenseData.ts` — add a stable `useCallback` and include it in the return object.
 5. **Wire** in `Dashboard.tsx` — pass the callback as a prop to the view that needs it.
@@ -198,3 +207,6 @@ Backups: `docker compose exec db pg_dump -U postgres financedb > backup_$(date +
 | Action interface mismatch (TS) | Each view takes its own typed interface — don't pass `CategoryActions` to `ExpenseViewer` |
 | Port 80/443 in use | `sudo lsof -i :80` / `:443`, stop the conflicting process |
 | Cert warning on `localhost` | Expected — Caddy self-signs locally; click through. On a real domain it auto-fetches Let's Encrypt |
+| `429 Too Many Requests` on login | You have hit the rate limit (10 attempts / 5 min per IP). Wait for the window to expire. In dev, restart the backend to reset the in-memory counter. |
+| Session not restored after deploy | The `__Host-refresh` cookie requires `Secure` — it will not be set over plain HTTP. Always access the app via `https://`. On localhost, accept the self-signed cert. |
+| Refresh cookie not sent | Ensure all `fetch` calls use `credentials: 'same-origin'`. Without it the browser does not attach cookies, and `/api/auth/refresh` returns 401. |

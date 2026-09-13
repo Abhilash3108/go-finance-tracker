@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import type { User } from './types';
 import {
-    getAccessToken, getRefreshToken,
-    saveTokens, clearTokens,
+    getAccessToken,
+    saveAccessToken, clearTokens,
     decodeJWTPayload, isTokenExpired,
     attemptRefresh,
     setSessionExpiredHandler,
@@ -21,53 +21,47 @@ export default function App() {
         return () => setSessionExpiredHandler(null);
     }, []);
 
-    // On mount: restore the session from localStorage without a server round-trip.
+    // On mount: restore the session without a server round-trip if the access
+    // token is still valid; otherwise let the HttpOnly cookie carry the refresh
+    // token to the server silently.
     useEffect(() => {
-        const access  = getAccessToken();
-        const refresh = getRefreshToken();
+        const access = getAccessToken();
 
         if (access && !isTokenExpired(access)) {
             // Access token still valid — decode user directly from its payload.
             const ap = decodeJWTPayload(access);
-            const rp = refresh ? decodeJWTPayload(refresh) : null;
             if (ap && typeof ap.sub === 'number') {
-                setUser({ id: ap.sub, email: (rp?.email as string) ?? '' });
+                setUser({ id: ap.sub, email: (ap.email as string) ?? '' });
             }
             setReady(true);
-        } else if (refresh && !isTokenExpired(refresh)) {
-            // Access token expired but refresh valid — silently get a new pair.
+        } else {
+            // Access token missing or expired — attempt a silent refresh using
+            // the HttpOnly cookie (browser sends it automatically).
             attemptRefresh().then(newAccess => {
                 if (newAccess) {
                     const ap = decodeJWTPayload(newAccess);
-                    const rp = decodeJWTPayload(getRefreshToken() ?? '');
                     if (ap && typeof ap.sub === 'number') {
-                        setUser({ id: ap.sub, email: (rp?.email as string) ?? '' });
+                        setUser({ id: ap.sub, email: (ap.email as string) ?? '' });
                     }
                 } else {
                     clearTokens();
                 }
             }).finally(() => setReady(true));
-        } else {
-            clearTokens();
-            setReady(true);
         }
     }, []);
 
-    const handleAuth = (u: User, access: string, refresh: string) => {
-        saveTokens(access, refresh);
+    const handleAuth = (u: User, access: string) => {
+        saveAccessToken(access);
         setUser(u);
     };
 
     const handleLogout = async () => {
-        const refreshToken = getRefreshToken();
-        // Best-effort server-side revocation — don't block the UI on it.
-        if (refreshToken) {
-            fetch('/api/auth/logout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refreshToken }),
-            }).catch(() => {});
-        }
+        // Best-effort server-side revocation — clears the HttpOnly cookie too.
+        fetch('/api/auth/logout', {
+            method:      'POST',
+            credentials: 'same-origin',
+            headers:     { 'Content-Type': 'application/json' },
+        }).catch(() => {});
         clearTokens();
         setUser(null);
     };

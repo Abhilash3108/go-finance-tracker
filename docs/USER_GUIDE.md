@@ -55,7 +55,7 @@ On success you are signed in immediately and taken to the Overview tab. No email
 
 Use the eye icon next to the password field to show or hide what you're typing.
 
-**Staying signed in:** Your session is stored in the browser. Closing and reopening the tab — or closing the browser entirely — keeps you signed in for up to **7 days** without re-entering your password.
+**Staying signed in:** Your session is stored securely in the browser. Closing and reopening the tab — or closing the browser entirely — keeps you signed in for up to **7 days** without re-entering your password. The long-lived refresh token is stored in a secure cookie that browser extensions and JavaScript cannot read.
 
 ---
 
@@ -258,8 +258,8 @@ The selected templates are inserted as real expenses on the chosen date. A succe
 
 Click **Sign Out** in the top-right corner. This:
 
-1. Sends your refresh token to the server, which immediately invalidates it in the database.
-2. Clears all tokens from your browser's storage.
+1. Sends a request to the server, which immediately invalidates your refresh token in the database and clears the secure session cookie.
+2. Removes the access token from your browser's storage.
 
 After signing out, your old session is immediately invalidated — reopening the app will show the login screen.
 
@@ -293,8 +293,9 @@ Password reset is not yet available in the UI. Contact your administrator and as
 
 **The app logged me out unexpectedly.**
 Either:
-- Both tokens expired (no activity for more than 7 days).
+- Your session expired (no activity for more than 7 days).
 - You were signed out from another device or by an administrator.
+- Your browser cleared its cookies (private/incognito mode, or browser data was wiped).
 
 Sign in again to start a new session.
 

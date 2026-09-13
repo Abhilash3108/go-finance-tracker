@@ -1,28 +1,27 @@
 // API client: token storage, JWT helpers, and authenticated fetch with
 // automatic proactive + reactive token refresh.
+//
+// Security model:
+//   - Access token: stored in localStorage (short-lived, 15 min).
+//   - Refresh token: stored in an HttpOnly Secure SameSite=Strict cookie set
+//     by the server. JavaScript never reads or writes it — the browser sends
+//     it automatically on requests to the same origin. This prevents XSS from
+//     stealing the refresh token even if the access token is compromised.
 
-const ACCESS_KEY  = 'finance_access_token';
-const REFRESH_KEY = 'finance_refresh_token';
+const ACCESS_KEY = 'finance_access_token';
 
 // ---------------------------------------------------------------------------
-// Token Storage
+// Token Storage — access token only
 // ---------------------------------------------------------------------------
 
-export function getAccessToken():  string | null { try { return localStorage.getItem(ACCESS_KEY);  } catch { return null; } }
-export function getRefreshToken(): string | null { try { return localStorage.getItem(REFRESH_KEY); } catch { return null; } }
+export function getAccessToken():  string | null { try { return localStorage.getItem(ACCESS_KEY); } catch { return null; } }
 
-export function saveTokens(access: string, refresh: string) {
-    try {
-        localStorage.setItem(ACCESS_KEY,  access);
-        localStorage.setItem(REFRESH_KEY, refresh);
-    } catch { /* storage blocked — session still works in-memory */ }
+export function saveAccessToken(access: string) {
+    try { localStorage.setItem(ACCESS_KEY, access); } catch { /* storage blocked */ }
 }
 
 export function clearTokens() {
-    try {
-        localStorage.removeItem(ACCESS_KEY);
-        localStorage.removeItem(REFRESH_KEY);
-    } catch { /* ignore */ }
+    try { localStorage.removeItem(ACCESS_KEY); } catch { /* ignore */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -62,21 +61,17 @@ export function setSessionExpiredHandler(fn: (() => void) | null) {
 // ---------------------------------------------------------------------------
 
 export async function attemptRefresh(): Promise<string | null> {
-    const refreshToken = getRefreshToken();
-    if (!refreshToken || isTokenExpired(refreshToken)) {
-        clearTokens();
-        onSessionExpired?.();
-        return null;
-    }
     try {
+        // The HttpOnly refresh cookie is sent automatically by the browser —
+        // no need to read it from JS or include it in the body.
         const res = await fetch('/api/auth/refresh', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refreshToken }),
+            method:      'POST',
+            credentials: 'same-origin', // ensures cookie is sent
+            headers:     { 'Content-Type': 'application/json' },
         });
         if (!res.ok) { clearTokens(); onSessionExpired?.(); return null; }
         const data = await res.json();
-        saveTokens(data.accessToken, data.refreshToken);
+        saveAccessToken(data.accessToken);
         return data.accessToken;
     } catch {
         clearTokens();
@@ -92,6 +87,7 @@ export async function attemptRefresh(): Promise<string | null> {
 function fetchWithToken(path: string, options: RequestInit, token: string | null): Promise<Response> {
     return fetch(path, {
         ...options,
+        credentials: 'same-origin', // always send cookies (refresh cookie on auth routes)
         headers: {
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),

@@ -15,14 +15,17 @@ func main() {
 	// Connect to Postgres and run pending migrations.
 	initDB(dbURL)
 
+	// Start background goroutine that prunes stale rate-limiter entries.
+	startRateCleanup()
+
 	// ---------------------------------------------------------------------------
 	// Routes
 	// ---------------------------------------------------------------------------
 	mux := http.NewServeMux()
 
-	// Auth — public endpoints.
-	mux.HandleFunc("/api/auth/register", handleRegister)
-	mux.HandleFunc("/api/auth/login",    handleLogin)
+	// Auth — public endpoints, login/register wrapped with rate limiter.
+	mux.HandleFunc("/api/auth/register", rateLimitMiddleware(handleRegister))
+	mux.HandleFunc("/api/auth/login",    rateLimitMiddleware(handleLogin))
 	mux.HandleFunc("/api/auth/refresh",  handleRefresh)
 	mux.HandleFunc("/api/auth/logout",   handleLogout)
 

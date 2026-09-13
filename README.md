@@ -58,6 +58,8 @@ Only Caddy's ports 80 and 443 are exposed to the host. Backend and database port
 ## Features
 
 - **JWT authentication** — 15-minute access tokens + 7-day refresh tokens with automatic rotation
+- **HttpOnly cookie for refresh token** — refresh token stored in a `__Host-refresh` `HttpOnly; Secure; SameSite=Strict` cookie; JavaScript cannot read it — XSS cannot steal the long-lived token
+- **Brute-force protection** — in-memory rate limiter on login/register: 10 attempts per IP per 5-minute window, returns `429 Too Many Requests`
 - **Refresh token revocation** — server-side SHA-256 hash stored in Postgres; logout invalidates immediately
 - **Per-user data isolation** — every query is filtered by `user_id` extracted from the verified JWT
 - **Automatic HTTPS** — Caddy + Let's Encrypt on a real domain; self-signed on localhost, no manual cert work

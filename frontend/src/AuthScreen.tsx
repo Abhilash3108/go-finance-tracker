@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import type { User } from './types';
 
 interface Props {
-    onAuth: (user: User, access: string, refresh: string) => void;
+    onAuth: (user: User, access: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,10 +52,9 @@ const STYLES = {
 // ---------------------------------------------------------------------------
 
 interface AuthResult {
-    ok:   true;
-    user: User;
-    accessToken:  string;
-    refreshToken: string;
+    ok:          true;
+    user:        User;
+    accessToken: string;
 }
 interface AuthError {
     ok:      false;
@@ -68,10 +67,13 @@ async function authRequest(
     password: string,
 ): Promise<AuthResult | AuthError> {
     try {
+        // credentials: 'same-origin' ensures the browser stores the HttpOnly
+        // refresh cookie that the server sets in the Set-Cookie response header.
         const res  = await fetch(`/api/auth/${mode}`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ email: email.trim().toLowerCase(), password }),
+            method:      'POST',
+            credentials: 'same-origin',
+            headers:     { 'Content-Type': 'application/json' },
+            body:        JSON.stringify({ email: email.trim().toLowerCase(), password }),
         });
         const text = await res.text();
         let data: Record<string, unknown>;
@@ -81,10 +83,9 @@ async function authRequest(
             return { ok: false, message: (data.message as string) || text || 'Something went wrong' };
         }
         return {
-            ok:           true,
-            user:         data.user         as User,
-            accessToken:  data.accessToken  as string,
-            refreshToken: data.refreshToken as string,
+            ok:          true,
+            user:        data.user        as User,
+            accessToken: data.accessToken as string,
         };
     } catch {
         return { ok: false, message: 'Network error — please try again' };
@@ -118,7 +119,7 @@ export default function AuthScreen({ onAuth }: Props) {
         const result = await authRequest(mode, email, password);
         setLoading(false);
         if (!result.ok) { setError(result.message); return; }
-        onAuth(result.user, result.accessToken, result.refreshToken);
+        onAuth(result.user, result.accessToken);
     };
 
     const toggleMode = () => {
