@@ -126,6 +126,8 @@ const STYLES = {
     } as React.CSSProperties,
 
     selectAllBtn: { color: '#818cf8', background: 'none', border: 'none', padding: 0, cursor: 'pointer' } as React.CSSProperties,
+    cardHeader:   { cursor: 'pointer', userSelect: 'none' as const }                                      as React.CSSProperties,
+    chevron:      { color: 'rgba(255,255,255,0.35)', fontSize: '0.7rem', transition: 'transform 0.2s' }   as React.CSSProperties,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -251,6 +253,18 @@ export default function SpendingView({ categories, actions }: Props) {
     }, [breakdown]);
 
     const allSelected = categories.length > 0 && selectedIds.size === categories.length;
+
+    // Collapse state — Set of categoryIds whose monthly breakdown is hidden.
+    // Starts empty (all expanded). Toggled per card header click.
+    const [collapsedIds, setCollapsedIds] = useState<Set<number>>(new Set());
+
+    const toggleCollapse = useCallback((id: number) => {
+        setCollapsedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    }, []);
 
     // ---------------------------------------------------------------------------
     // Render
@@ -434,48 +448,70 @@ export default function SpendingView({ categories, actions }: Props) {
                     </div>
                 )}
 
-                {!loading && breakdown.map(cat => (
-                    <div key={cat.categoryId} className="rounded-2xl p-5 flex flex-col gap-4" style={STYLES.card}>
+                {!loading && breakdown.map(cat => {
+                    const collapsed = collapsedIds.has(cat.categoryId);
+                    return (
+                        <div key={cat.categoryId} className="rounded-2xl overflow-hidden" style={STYLES.card}>
 
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                            <h3 className="font-black text-white text-base">{cat.categoryName}</h3>
-                            <div className="flex flex-col items-end">
-                                <span className="text-xs" style={STYLES.sectionLabel}>All-time total</span>
-                                <span className="text-lg font-black" style={STYLES.allTimeVal}>
-                                    {fmt(cat.allTimeTotal)}
-                                </span>
-                            </div>
-                        </div>
-
-                        {cat.monthly.length === 0 ? (
-                            <p className="text-xs" style={STYLES.emptyState}>No monthly data available.</p>
-                        ) : (
-                            <div className="flex flex-col gap-2">
-                                <span className="text-xs font-bold uppercase tracking-wider" style={STYLES.sectionLabel}>
-                                    Monthly breakdown
-                                </span>
-                                <div className="flex flex-col gap-2">
-                                    {cat.monthly.map(mo => {
-                                        const pct = Math.max(2, (mo.total / maxMonthly) * 100);
-                                        return (
-                                            <div key={mo.month} className="flex items-center gap-3">
-                                                <span className="text-xs font-mono w-14 shrink-0 text-right" style={STYLES.sectionLabel}>
-                                                    {fmtMonth(mo.month)}
-                                                </span>
-                                                <div className="flex-1 h-5 rounded-full overflow-hidden" style={STYLES.barTrack}>
-                                                    <div className="h-full rounded-full" style={{ ...STYLES.barFill, width: `${pct}%` }} />
-                                                </div>
-                                                <span className="text-xs font-bold w-24 text-right text-white shrink-0">
-                                                    {fmt(mo.total)}
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
+                            {/* Header — always visible, click to toggle */}
+                            <div
+                                className="flex items-center justify-between gap-2 px-5 py-4"
+                                style={STYLES.cardHeader}
+                                onClick={() => toggleCollapse(cat.categoryId)}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <span
+                                        style={{
+                                            ...STYLES.chevron,
+                                            transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                                        }}
+                                    >▼</span>
+                                    <h3 className="font-black text-white text-base">{cat.categoryName}</h3>
+                                </div>
+                                <div className="flex flex-col items-end">
+                                    <span className="text-xs" style={STYLES.sectionLabel}>All-time total</span>
+                                    <span className="text-lg font-black" style={STYLES.allTimeVal}>
+                                        {fmt(cat.allTimeTotal)}
+                                    </span>
                                 </div>
                             </div>
-                        )}
-                    </div>
-                ))}
+
+                            {/* Monthly breakdown — shown when expanded */}
+                            {!collapsed && (
+                                <div className="px-5 pb-5 flex flex-col gap-2">
+                                    {cat.monthly.length === 0 ? (
+                                        <p className="text-xs" style={STYLES.emptyState}>No monthly data available.</p>
+                                    ) : (
+                                        <>
+                                            <span className="text-xs font-bold uppercase tracking-wider" style={STYLES.sectionLabel}>
+                                                Monthly breakdown
+                                            </span>
+                                            <div className="flex flex-col gap-2">
+                                                {cat.monthly.map(mo => {
+                                                    const pct = Math.max(2, (mo.total / maxMonthly) * 100);
+                                                    return (
+                                                        <div key={mo.month} className="flex items-center gap-3">
+                                                            <span className="text-xs font-mono w-14 shrink-0 text-right" style={STYLES.sectionLabel}>
+                                                                {fmtMonth(mo.month)}
+                                                            </span>
+                                                            <div className="flex-1 h-5 rounded-full overflow-hidden" style={STYLES.barTrack}>
+                                                                <div className="h-full rounded-full" style={{ ...STYLES.barFill, width: `${pct}%` }} />
+                                                            </div>
+                                                            <span className="text-xs font-bold w-24 text-right text-white shrink-0">
+                                                                {fmt(mo.total)}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+
+                        </div>
+                    );
+                })}
             </section>
 
         </div>

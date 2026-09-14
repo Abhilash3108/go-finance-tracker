@@ -153,7 +153,10 @@ function ExpenseEditRow({
 // ---------------------------------------------------------------------------
 
 export default function ExpenseViewer({ expenses, categories, actions, onChanged }: Props) {
-    const [monthFilter,    setMonthFilter]    = useState('all');
+    const [monthFilter,    setMonthFilter]    = useState(() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    });
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [selected,       setSelected]       = useState<Set<number>>(new Set());
     const [editingId,      setEditingId]      = useState<number | null>(null);
@@ -254,6 +257,7 @@ export default function ExpenseViewer({ expenses, categories, actions, onChanged
                 <div className="flex gap-3 flex-wrap">
                     {/* Month filter */}
                     <select
+                        value={monthFilter}
                         onChange={e => setMonthFilter(e.target.value)}
                         className="rounded-xl px-4 py-2 text-sm font-semibold outline-none appearance-none cursor-pointer"
                         style={STYLES.monthSelect}
