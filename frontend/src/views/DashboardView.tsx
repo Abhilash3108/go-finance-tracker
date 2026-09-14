@@ -240,15 +240,28 @@ export default function DashboardView({
             ? pctData
             : pctData.filter(d => d.categoryName === categoryFilter);
 
-        const tot = disp.reduce((sum, d) => sum + d.totalAmount, 0);
-        const top = disp.length > 0
-            ? disp.reduce((a, b) => a.totalAmount > b.totalAmount ? a : b)
+        // Backend returns one row per (year, category) when year=all — aggregate
+        // by categoryName first so totals and percentages are correct across all years.
+        const map = new Map<string, number>();
+        for (const d of disp) {
+            map.set(d.categoryName, (map.get(d.categoryName) ?? 0) + d.totalAmount);
+        }
+
+        const tot = [...map.values()].reduce((sum, v) => sum + v, 0);
+        const merged = [...map.entries()].map(([categoryName, totalAmount]) => ({
+            categoryName,
+            totalAmount,
+            percentage: tot > 0 ? (totalAmount / tot) * 100 : 0,
+        }));
+
+        const top = merged.length > 0
+            ? merged.reduce((a, b) => a.totalAmount > b.totalAmount ? a : b)
             : null;
         return {
             total:    tot,
             topSpend: top,
-            count:    disp.length,
-            sorted:   [...disp].sort((a, b) => b.totalAmount - a.totalAmount),
+            count:    merged.length,
+            sorted:   [...merged].sort((a, b) => b.totalAmount - a.totalAmount),
         };
     }, [categoryFilter, pctData]);
 
