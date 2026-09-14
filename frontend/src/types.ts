@@ -21,8 +21,29 @@ export interface MonthlySummary {
     totalAmount: number;
 }
 
-export type TabName = 'add' | 'categories' | 'viewer' | 'dashboard' | 'recurring';
-export const TABS: TabName[] = ['dashboard', 'add', 'categories', 'viewer', 'recurring'];
+export interface CategoryMonthly {
+    month: string;   // "YYYY-MM-DD" first day of month
+    total: number;
+}
+
+export interface CategoryBreakdown {
+    categoryId:   number;
+    categoryName: string;
+    allTimeTotal: number;
+    monthly:      CategoryMonthly[];
+}
+
+/** Actions available to the SpendingView. */
+export interface SpendingActions {
+    fetchCategoryBreakdown: (
+        categoryIds: number[],
+        from:        string,
+        to:          string,
+    ) => Promise<CategoryBreakdown[]>;
+}
+
+export type TabName = 'add' | 'categories' | 'viewer' | 'dashboard' | 'recurring' | 'spending';
+export const TABS: TabName[] = ['dashboard', 'add', 'categories', 'viewer', 'recurring', 'spending'];
 
 // ---------------------------------------------------------------------------
 // Action interfaces — typed contracts injected into views from Dashboard.

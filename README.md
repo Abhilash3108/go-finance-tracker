@@ -1,102 +1,64 @@
 # Finance Tracker
 
-A self-hosted personal finance tracker. Record expenses, organise by category, and analyse spending — fully containerised, HTTPS out of the box.
+Personal expense tracker — record, categorise, and analyse your spending.
 
-**Stack:** Go 1.21 · PostgreSQL 15 · React 18 + TypeScript 5 · Vite 5 · Docker · Caddy 2
+**Stack:** Go 1.21 · PostgreSQL 15 · React 18 + TypeScript 5 · Vite 5
 
 ---
 
-## Quick Start
+## Quick start (local)
 
 ```bash
-git clone https://github.com/your-org/go-finance-tracker.git
-cd go-finance-tracker
-cp .env.example .env        # only change DOMAIN= for production
-./start.sh                  # generates secrets, builds images, starts all services
+cp .env.example .env
+./start.sh          # generates secrets, builds images, starts everything
 ```
 
-Open **https://localhost** — Caddy handles TLS automatically (self-signed cert on localhost).
-
----
-
-## Documentation
-
-| Doc | Audience | Contents |
-|-----|----------|----------|
-| [**ARCHITECTURE.md**](docs/ARCHITECTURE.md) | Engineers, tech leads | Technology choices, JWT token design, refresh token revocation, full API reference, database schema, data-flow diagrams |
-| [**DEVELOPMENT.md**](docs/DEVELOPMENT.md) | Contributors | Clone → run → develop: env setup, migrations, adding endpoints, adding views, testing, production deploy, troubleshooting |
-| [**USER_GUIDE.md**](docs/USER_GUIDE.md) | End users | Registration, login, categories, adding expenses, filtering, dashboard, FAQ |
-
----
-
-## Architecture Overview
-
-```
-Browser
-  │
-  ▼
-Caddy (:443 / :80)       ← only public-facing ports
-  ├── /api/*  ──────────► Go backend (:8080, internal)
-  │                           │
-  │                           ▼
-  │                       PostgreSQL (:5432, internal)
-  │
-  └── /*  ───────────────► nginx + React SPA (:80, internal)
-```
-
-Only Caddy's ports 80 and 443 are exposed to the host. Backend and database ports use Docker `expose` (container-internal only).
-
-| Service | Image | Role |
-|---------|-------|------|
-| `caddy` | `caddy:2-alpine` | HTTPS/HTTP termination, reverse proxy, automatic TLS (Let's Encrypt / self-signed) |
-| `backend` | built from `./backend` | REST API, JWT auth, DB migrations |
-| `frontend` | built from `./frontend` | React SPA served by nginx |
-| `db` | `postgres:15-alpine` | Persistent relational data store |
+Open **https://localhost** (accept the self-signed cert warning).
 
 ---
 
 ## Features
 
-- **JWT authentication** — 15-minute access tokens + 7-day refresh tokens with automatic rotation
-- **HttpOnly cookie for refresh token** — refresh token stored in a `__Host-refresh` `HttpOnly; Secure; SameSite=Strict` cookie; JavaScript cannot read it — XSS cannot steal the long-lived token
-- **Brute-force protection** — in-memory rate limiter on login/register: 10 attempts per IP per 5-minute window, returns `429 Too Many Requests`
-- **Refresh token revocation** — server-side SHA-256 hash stored in Postgres; logout invalidates immediately
-- **Per-user data isolation** — every query is filtered by `user_id` extracted from the verified JWT
-- **Automatic HTTPS** — Caddy + Let's Encrypt on a real domain; self-signed on localhost, no manual cert work
-- **Schema migrations** — numbered `.up.sql` files run by `golang-migrate` at startup; safe to re-deploy
-- **Zero hardcoded secrets** — `openssl rand` generates `POSTGRES_PASSWORD` (192-bit) and `JWT_SECRET` (512-bit) on first run
-- **HTTP/3 (QUIC)** — Caddy's UDP port 443 entry enables HTTP/3 automatically
-- **Security headers** — HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy` applied at the Caddy layer
-- **Overview dashboard** — year/month filter, category breakdown with percentage bars, monthly trend bar chart, peak month callout
-- **CSV export** — download all expenses (or a specific date range) as a CSV file directly from the Overview tab
-- **Recurring expenses** — store monthly templates (rent, subscriptions, etc.); dump selected templates into real expenses with one click, with same-month duplicate warnings; server-computed grand total bar shows total monthly commitment and selected subtotal at a glance
-- **Bulk operations** — select-all checkbox in Categories, My Expenses, and Recurring tabs for one-click multi-delete
-- **Friendly tab navigation** — Overview · New Expense · Categories · My Expenses · Recurring
+| Tab | What it does |
+|-----|-------------|
+| 📊 Overview | Category breakdown + monthly trend chart + CSV export |
+| ➕ New Expense | Log a single expense |
+| 🏷️ Categories | Create / rename / delete categories |
+| 📋 My Expenses | Filter, inline-edit, bulk-delete |
+| 🔁 Recurring | Monthly templates → dump to expenses in one click |
+| 🔍 Spending | Multi-category comparison: monthly bars + all-time totals |
+
+**Security highlights**
+- 15-min access token (localStorage) + 7-day refresh token (`__Host-refresh` HttpOnly cookie)
+- Rate-limited login/register: 10 attempts / 5 min per IP → `429`
+- Refresh token revocation via server-side SHA-256 hash
 
 ---
 
-## Environment Variables
+## Docs
 
-Copy `.env.example` to `.env`. For local development the defaults need no changes:
+| File | Contents |
+|------|----------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Tech choices, auth design, API reference, DB schema |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Setup, commands, patterns, adding endpoints/tabs |
+| [USER_GUIDE.md](docs/USER_GUIDE.md) | How to use every feature |
+
+---
+
+## Environment variables
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `POSTGRES_USER` | `postgres` | Database username |
-| `POSTGRES_PASSWORD` | *(blank)* | Auto-generated (192-bit hex) on first run |
-| `POSTGRES_DB` | `financedb` | Database name |
-| `JWT_SECRET` | *(blank)* | Auto-generated (512-bit hex) on first run |
-| `DOMAIN` | `localhost` | Change to your domain in production |
-| `DB_URL` | *(derived)* | Built at runtime; never written to `.env` |
-| `ALLOWED_ORIGIN` | *(derived)* | Built from `DOMAIN`; never written to `.env` |
+| `POSTGRES_USER` | `postgres` | |
+| `POSTGRES_PASSWORD` | *(auto)* | 192-bit hex, generated on first run |
+| `POSTGRES_DB` | `financedb` | |
+| `JWT_SECRET` | *(auto)* | 512-bit hex, generated on first run |
+| `DOMAIN` | `localhost` | Change for production |
+
+`DB_URL` and `ALLOWED_ORIGIN` are assembled at runtime — never written to `.env`.
 
 ---
 
-## Resetting
-
 ```bash
-./start.sh --reset    # wipes all volumes + secrets, starts fresh
+./start.sh --reset   # ⚠️ wipes all data — never run in production
 ```
-
-This deletes `pgdata`, `caddy_data`, and `caddy_config` volumes, clears the generated secrets in `.env`, then regenerates everything and starts clean.
-
-> ⚠️ **Never run `--reset` on a production server** — it permanently deletes all data and TLS certificates.

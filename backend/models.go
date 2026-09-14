@@ -54,6 +54,21 @@ type RecurringSummary struct {
 	Total float64 `json:"total"`
 }
 
+// CategoryMonthly is one month's total for a single category.
+type CategoryMonthly struct {
+	Month string  `json:"month"` // "YYYY-MM-DD" first day of month
+	Total float64 `json:"total"`
+}
+
+// CategoryBreakdown is returned per selected category by
+// GET /api/reports/category-breakdown.
+type CategoryBreakdown struct {
+	CategoryID   int               `json:"categoryId"`
+	CategoryName string            `json:"categoryName"`
+	AllTimeTotal float64           `json:"allTimeTotal"`
+	Monthly      []CategoryMonthly `json:"monthly"`
+}
+
 type Result struct {
 	Year         int     `json:"year"`
 	CategoryName string  `json:"categoryName"`

@@ -1,7 +1,7 @@
 import { useMemo, useEffect } from 'react';
 import type {
     User, TabName,
-    ExpenseActions, CategoryActions, ExpenseViewerActions, RecurringActions,
+    ExpenseActions, CategoryActions, ExpenseViewerActions, RecurringActions, SpendingActions,
     NewExpense, UpdateExpensePayload, NewRecurringExpense,
 } from './types';
 import { TABS } from './types';
@@ -12,6 +12,7 @@ import Categories    from './views/Categories';
 import ExpenseViewer from './views/ExpenseViewer';
 import DashboardView from './views/DashboardView';
 import RecurringView from './views/RecurringView';
+import SpendingView  from './views/SpendingView';
 import { useState } from 'react';
 
 interface Props {
@@ -25,6 +26,7 @@ const TAB_ICONS: Record<TabName, string> = {
     categories: '🏷️',
     viewer:     '📋',
     recurring:  '🔁',
+    spending:   '🔍',
 };
 
 const TAB_LABELS: Record<TabName, string> = {
@@ -33,6 +35,7 @@ const TAB_LABELS: Record<TabName, string> = {
     categories: 'Categories',
     viewer:     'My Expenses',
     recurring:  'Recurring',
+    spending:   'Spending',
 };
 
 // ---------------------------------------------------------------------------
@@ -58,7 +61,7 @@ export default function Dashboard({ user, onLogout }: Props) {
     const {
         expenses, categories, availableYears, recurringItems, recurringSummary,
         fetchData, fetchRecurring, fetchRecurringSummary,
-        fetchCategoryPercent, fetchMonthlyTrend, fetchExport,
+        fetchCategoryPercent, fetchMonthlyTrend, fetchCategoryBreakdown, fetchExport,
     } = useExpenseData();
 
     useEffect(() => { fetchData(); }, [fetchData]);
@@ -124,6 +127,10 @@ export default function Dashboard({ user, onLogout }: Props) {
         },
         fetchRecurringSummary,
     }), [fetchRecurringSummary]);
+
+    const spendingActions = useMemo<SpendingActions>(() => ({
+        fetchCategoryBreakdown,
+    }), [fetchCategoryBreakdown]);
 
     // Load recurring templates + summary when the user first visits that tab.
     // Both fetches are stable callbacks — they fire in parallel, one round-trip.
@@ -193,6 +200,7 @@ export default function Dashboard({ user, onLogout }: Props) {
                     {activeTab === 'viewer'     && <ExpenseViewer expenses={expenses}     categories={categories} actions={expenseViewerActions} onChanged={fetchData} />}
                     {activeTab === 'dashboard'  && <DashboardView categories={categories} availableYears={availableYears} fetchCategoryPercent={fetchCategoryPercent} fetchMonthlyTrend={fetchMonthlyTrend} fetchExport={fetchExport} />}
                     {activeTab === 'recurring'  && <RecurringView items={recurringItems} categories={categories} actions={recurringActions} summary={recurringSummary} onChanged={() => { fetchRecurring(); fetchRecurringSummary(); }} onDumped={fetchData} />}
+                    {activeTab === 'spending'   && <SpendingView  categories={categories} actions={spendingActions} />}
                 </div>
 
             </div>

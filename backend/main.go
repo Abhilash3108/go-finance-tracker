@@ -40,6 +40,7 @@ func main() {
 	mux.Handle("/api/expenses/category-percentage",   auth(getCategoryPercentage))
 	mux.Handle("/api/expenses/export",                auth(exportExpenses))
 	mux.Handle("/api/reports/monthly",                auth(getMonthlySummary))
+	mux.Handle("/api/reports/category-breakdown",     auth(getCategoryBreakdown))
 	mux.Handle("/api/recurring",                      auth(handleRecurring))
 	mux.Handle("/api/recurring/summary",              auth(getRecurringSummary))
 	mux.Handle("/api/recurring/delete",               auth(deleteRecurring))

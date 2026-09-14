@@ -1,19 +1,20 @@
 import { useState, useCallback, useMemo } from 'react';
-import type { Expense, Category, CategoryPercentage, MonthlySummary, RecurringExpense, RecurringSummary } from '../types';
+import type { Expense, Category, CategoryPercentage, MonthlySummary, RecurringExpense, RecurringSummary, CategoryBreakdown } from '../types';
 import { apiFetch } from '../api';
 
 export interface ExpenseData {
-    expenses:               Expense[];
-    categories:             Category[];
-    availableYears:         string[];
-    recurringItems:         RecurringExpense[];
-    recurringSummary:       RecurringSummary;
-    fetchData:              () => Promise<void>;
-    fetchRecurring:         () => Promise<void>;
-    fetchRecurringSummary:  () => Promise<void>;
-    fetchCategoryPercent:   (year: string, month: string) => Promise<CategoryPercentage[]>;
-    fetchMonthlyTrend:      (year: string, month: string) => Promise<MonthlySummary[]>;
-    fetchExport:            (from: string, to: string) => Promise<void>;
+    expenses:                 Expense[];
+    categories:               Category[];
+    availableYears:           string[];
+    recurringItems:           RecurringExpense[];
+    recurringSummary:         RecurringSummary;
+    fetchData:                () => Promise<void>;
+    fetchRecurring:           () => Promise<void>;
+    fetchRecurringSummary:    () => Promise<void>;
+    fetchCategoryPercent:     (year: string, month: string) => Promise<CategoryPercentage[]>;
+    fetchMonthlyTrend:        (year: string, month: string) => Promise<MonthlySummary[]>;
+    fetchCategoryBreakdown:   (categoryIds: number[], from: string, to: string) => Promise<CategoryBreakdown[]>;
+    fetchExport:              (from: string, to: string) => Promise<void>;
 }
 
 /**
@@ -104,6 +105,28 @@ export function useExpenseData(): ExpenseData {
         }
     }, []);
 
+    // Fetches per-category monthly breakdown for selected category IDs.
+    // 'from' / 'to' are "YYYY-MM-DD" strings, or '' to omit the bound.
+    // Returns [] on error so SpendingView renders an empty state gracefully.
+    const fetchCategoryBreakdown = useCallback(async (
+        categoryIds: number[],
+        from: string,
+        to:   string,
+    ): Promise<CategoryBreakdown[]> => {
+        if (categoryIds.length === 0) return [];
+        const params = new URLSearchParams();
+        categoryIds.forEach(id => params.append('categories', String(id)));
+        if (from) params.set('from', from);
+        if (to)   params.set('to',   to);
+        try {
+            const res = await apiFetch(`/api/reports/category-breakdown?${params.toString()}`);
+            if (!res.ok) return [];
+            return res.json();
+        } catch {
+            return [];
+        }
+    }, []);
+
     // Triggers a CSV download for the given date range.
     // 'from' / 'to' are "YYYY-MM-DD" strings, or '' to omit the bound.
     const fetchExport = useCallback(async (from: string, to: string): Promise<void> => {
@@ -131,6 +154,6 @@ export function useExpenseData(): ExpenseData {
     return {
         expenses, categories, availableYears, recurringItems, recurringSummary,
         fetchData, fetchRecurring, fetchRecurringSummary,
-        fetchCategoryPercent, fetchMonthlyTrend, fetchExport,
+        fetchCategoryPercent, fetchMonthlyTrend, fetchCategoryBreakdown, fetchExport,
     };
 }

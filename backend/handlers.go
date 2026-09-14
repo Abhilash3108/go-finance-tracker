@@ -373,6 +373,140 @@ func getCategoryPercentage(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, res, http.StatusOK)
 }
 
+// getCategoryBreakdown returns per-category monthly totals and all-time totals
+// for a user-selected set of category IDs, with an optional date range filter.
+//
+// Query params:
+//
+//	?categories=1&categories=2   — required: one or more category IDs to include
+//	?from=YYYY-MM-DD             — optional: include expenses on or after this date
+//	?to=YYYY-MM-DD               — optional: include expenses on or before this date
+//
+// A single SQL query groups by category_id + month so the DB does all the work.
+// The Go layer assembles the flat rows into the nested CategoryBreakdown slice.
+func getCategoryBreakdown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID := userIDFromContext(r)
+
+	// Parse and validate category IDs.
+	catStrs := r.URL.Query()["categories"]
+	if len(catStrs) == 0 {
+		http.Error(w, "at least one categories param is required", http.StatusBadRequest)
+		return
+	}
+	catIDs, err := parseIntIDs(catStrs)
+	if err != nil {
+		http.Error(w, "invalid categories value", http.StatusBadRequest)
+		return
+	}
+
+	// Build optional date-range conditions.
+	var conditions []string
+	args := []interface{}{userID, catIDs}
+	idx := 3
+
+	if from := r.URL.Query().Get("from"); from != "" {
+		if _, err := time.Parse("2006-01-02", from); err != nil {
+			http.Error(w, "invalid 'from' date — use YYYY-MM-DD", http.StatusBadRequest)
+			return
+		}
+		args = append(args, from)
+		conditions = append(conditions, fmt.Sprintf("e.created_at >= $%d::date", idx))
+		idx++
+	}
+	if to := r.URL.Query().Get("to"); to != "" {
+		if _, err := time.Parse("2006-01-02", to); err != nil {
+			http.Error(w, "invalid 'to' date — use YYYY-MM-DD", http.StatusBadRequest)
+			return
+		}
+		args = append(args, to)
+		conditions = append(conditions, fmt.Sprintf("e.created_at < ($%d::date + INTERVAL '1 day')", idx))
+	}
+
+	whereExtra := ""
+	if len(conditions) > 0 {
+		whereExtra = " AND " + strings.Join(conditions, " AND ")
+	}
+
+	// One query: group by category + month, compute SUM per group.
+	// The allTimeTotal is computed as a window function over the category
+	// so we don't need a second query or a second pass in Go.
+	query := fmt.Sprintf(`
+		SELECT
+			c.id,
+			c.name,
+			date_trunc('month', e.created_at)::date AS month,
+			SUM(e.amount)                            AS monthly_total,
+			SUM(SUM(e.amount)) OVER (PARTITION BY c.id) AS all_time_total
+		FROM expenses e
+		JOIN categories c ON e.category_id = c.id
+		WHERE e.user_id = $1
+		  AND e.category_id = ANY($2)
+		  %s
+		GROUP BY c.id, c.name, month
+		ORDER BY c.name ASC, month ASC`,
+		whereExtra,
+	)
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		http.Error(w, "Failed to fetch category breakdown", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	// Assemble flat DB rows into nested []CategoryBreakdown.
+	// Use an ordered slice + map for O(n) assembly without sorting in Go.
+	type entry = CategoryBreakdown
+	var order []int                // category ID insertion order
+	index := make(map[int]*entry)  // category ID → pointer into result
+
+	for rows.Next() {
+		var (
+			catID        int
+			catName      string
+			month        string
+			monthlyTotal float64
+			allTimeTotal float64
+		)
+		if err := rows.Scan(&catID, &catName, &month, &monthlyTotal, &allTimeTotal); err != nil {
+			http.Error(w, "Failed to read breakdown row", http.StatusInternalServerError)
+			return
+		}
+		if _, exists := index[catID]; !exists {
+			index[catID] = &entry{
+				CategoryID:   catID,
+				CategoryName: catName,
+				AllTimeTotal: allTimeTotal,
+				Monthly:      []CategoryMonthly{},
+			}
+			order = append(order, catID)
+		}
+		index[catID].Monthly = append(index[catID].Monthly, CategoryMonthly{
+			Month: month,
+			Total: monthlyTotal,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	result := make([]CategoryBreakdown, 0, len(order))
+	for _, id := range order {
+		result = append(result, *index[id])
+	}
+	// Return empty array (never null) when no data matches the filter.
+	if result == nil {
+		result = []CategoryBreakdown{}
+	}
+	jsonResponse(w, result, http.StatusOK)
+}
+
 func updateCategory(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
