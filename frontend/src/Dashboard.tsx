@@ -61,7 +61,8 @@ export default function Dashboard({ user, onLogout }: Props) {
     const {
         expenses, categories, availableYears, recurringItems, recurringSummary,
         fetchData, fetchRecurring, fetchRecurringSummary,
-        fetchCategoryPercent, fetchMonthlyTrend, fetchCategoryBreakdown, fetchExport,
+        fetchCategoryPercent, fetchMonthlyTrend, fetchCategoryBreakdown,
+        fetchGroups, saveGroup, deleteGroup, fetchExport,
     } = useExpenseData();
 
     useEffect(() => { fetchData(); }, [fetchData]);
@@ -130,7 +131,10 @@ export default function Dashboard({ user, onLogout }: Props) {
 
     const spendingActions = useMemo<SpendingActions>(() => ({
         fetchCategoryBreakdown,
-    }), [fetchCategoryBreakdown]);
+        fetchGroups,
+        saveGroup,
+        deleteGroup,
+    }), [fetchCategoryBreakdown, fetchGroups, saveGroup, deleteGroup]);
 
     // Load recurring templates + summary when the user first visits that tab.
     // Both fetches are stable callbacks — they fire in parallel, one round-trip.

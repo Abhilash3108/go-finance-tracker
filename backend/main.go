@@ -41,6 +41,8 @@ func main() {
 	mux.Handle("/api/expenses/export",                auth(exportExpenses))
 	mux.Handle("/api/reports/monthly",                auth(getMonthlySummary))
 	mux.Handle("/api/reports/category-breakdown",     auth(getCategoryBreakdown))
+	mux.Handle("/api/spending-groups",                auth(handleSpendingGroups))
+	mux.Handle("/api/spending-groups/delete",         auth(deleteSpendingGroup))
 	mux.Handle("/api/recurring",                      auth(handleRecurring))
 	mux.Handle("/api/recurring/summary",              auth(getRecurringSummary))
 	mux.Handle("/api/recurring/delete",               auth(deleteRecurring))

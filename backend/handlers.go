@@ -1016,3 +1016,147 @@ func handleExpenses(w http.ResponseWriter, r *http.Request) {
 	default:              http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Spending Groups
+// ---------------------------------------------------------------------------
+
+// handleSpendingGroups handles GET (list) and POST (create).
+func handleSpendingGroups(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:    listSpendingGroups(w, r)
+	case http.MethodPost:   createSpendingGroup(w, r)
+	default:                http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func listSpendingGroups(w http.ResponseWriter, r *http.Request) {
+	userID := userIDFromContext(r)
+	rows, err := db.QueryContext(r.Context(),
+		`SELECT id, name, category_ids FROM spending_groups WHERE user_id = $1 ORDER BY id ASC`,
+		userID,
+	)
+	if err != nil {
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	groups := []SpendingGroup{}
+	for rows.Next() {
+		var g SpendingGroup
+		// category_ids is a PostgreSQL integer array — scan as pq.Array
+		if err := rows.Scan(&g.ID, &g.Name, intArrayScanner{&g.CategoryIDs}); err != nil {
+			http.Error(w, "Scan error", http.StatusInternalServerError)
+			return
+		}
+		groups = append(groups, g)
+	}
+	jsonResponse(w, groups, http.StatusOK)
+}
+
+func createSpendingGroup(w http.ResponseWriter, r *http.Request) {
+	userID := userIDFromContext(r)
+	http.MaxBytesReader(w, r.Body, 1<<20)
+	var body struct {
+		Name        string `json:"name"`
+		CategoryIDs []int  `json:"categoryIds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+	if len(body.CategoryIDs) == 0 {
+		http.Error(w, "categoryIds must not be empty", http.StatusBadRequest)
+		return
+	}
+	var g SpendingGroup
+	err := db.QueryRowContext(r.Context(),
+		`INSERT INTO spending_groups (user_id, name, category_ids)
+		 VALUES ($1, $2, $3)
+		 RETURNING id, name, category_ids`,
+		userID, strings.TrimSpace(body.Name), intArrayValue(body.CategoryIDs),
+	).Scan(&g.ID, &g.Name, intArrayScanner{&g.CategoryIDs})
+	if err != nil {
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, g, http.StatusCreated)
+}
+
+func deleteSpendingGroup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := userIDFromContext(r)
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		http.Error(w, "Invalid id", http.StatusBadRequest)
+		return
+	}
+	res, err := db.ExecContext(r.Context(),
+		`DELETE FROM spending_groups WHERE id = $1 AND user_id = $2`,
+		id, userID,
+	)
+	if err != nil {
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---------------------------------------------------------------------------
+// Integer array helpers — read/write PostgreSQL integer[] without pq.Array
+// ---------------------------------------------------------------------------
+
+// intArrayValue encodes []int as a PostgreSQL array literal for INSERT/UPDATE.
+type intArrayValue []int
+
+func (a intArrayValue) Value() (driver.Value, error) {
+	if len(a) == 0 {
+		return "{}", nil
+	}
+	parts := make([]string, len(a))
+	for i, v := range a {
+		parts[i] = strconv.Itoa(v)
+	}
+	return "{" + strings.Join(parts, ",") + "}", nil
+}
+
+// intArrayScanner decodes a PostgreSQL array literal into *[]int for SELECT.
+type intArrayScanner struct{ dst *[]int }
+
+func (s intArrayScanner) Scan(src interface{}) error {
+	if src == nil {
+		*s.dst = nil
+		return nil
+	}
+	var raw string
+	switch v := src.(type) {
+	case string: raw = v
+	case []byte: raw = string(v)
+	default:     return fmt.Errorf("cannot scan %T into []int", src)
+	}
+	raw = strings.TrimPrefix(strings.TrimSuffix(raw, "}"), "{")
+	if raw == "" {
+		*s.dst = []int{}
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil {
+			return err
+		}
+		out = append(out, n)
+	}
+	*s.dst = out
+	return nil
+}

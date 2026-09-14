@@ -68,7 +68,7 @@ backend/
   db.go          — connection pool + migration runner
   middleware.go  — CORS · JWT auth · rate limiter
   models.go      — domain structs + token TTL constants
-  migrations/    — 001_init · 002_refresh_token · 003_recurring_expenses
+  migrations/    — 001_init · 002_refresh_token · 003_recurring_expenses · 004_spending_groups
 
 frontend/src/
   App.tsx              — session restore, auth gate
@@ -79,7 +79,8 @@ frontend/src/
   hooks/
     useExpenseData.ts  — all read fetches: expenses, categories,
                          recurringItems, recurringSummary,
-                         fetchCategoryBreakdown, fetchExport, …
+                         fetchCategoryBreakdown, fetchGroups,
+                         saveGroup, deleteGroup, fetchExport, …
     useClickOutside.ts
   components/
     SelectAllCheckbox.tsx
@@ -148,6 +149,16 @@ SUM(SUM(e.amount)) OVER (PARTITION BY c.id) AS all_time_total
 | DELETE | `/api/recurring/delete?id=1&id=2` | |
 | POST | `/api/recurring/dump` | `{ ids, date }` → `{ added, warnings }` |
 
+### Spending Groups *(Bearer required)*
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/spending-groups` | `[{ id, name, categoryIds }]` — per user |
+| POST | `/api/spending-groups` | `{ name, categoryIds }` → `201 { id, name, categoryIds }` |
+| DELETE | `/api/spending-groups/delete?id=N` | `204` |
+
+Groups are stored in DB per user — available on every device after login. `categoryIds` is a PostgreSQL `integer[]` column, encoded/decoded without extra dependencies via `intArrayValue` / `intArrayScanner` helpers in `handlers.go`.
+
 ---
 
 ## Database schema
@@ -189,5 +200,13 @@ CREATE TABLE recurring_expenses (
     description TEXT,
     category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
     user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- 004
+CREATE TABLE spending_groups (
+    id           SERIAL    PRIMARY KEY,
+    user_id      INTEGER   NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT      NOT NULL,
+    category_ids INTEGER[] NOT NULL DEFAULT '{}'
 );
 ```

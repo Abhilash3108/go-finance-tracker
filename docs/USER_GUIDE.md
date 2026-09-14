@@ -68,10 +68,16 @@ Go to **New Expense**, fill in **Amount**, **Category**, and optional **Descript
 ## Spending tab
 
 1. Click one or more **category chips** to select them. Use **Select all** / **Clear** shortcuts.
-2. Pick a **date range** preset: All time · This year · Last 3 months · Last month · Custom.
+2. Pick a **date range** preset: All time · This month · This year · Last 3 months · Last month · Custom.
 3. Each selected category shows a card with:
    - **All-time total** — grand total regardless of date range.
    - **Monthly bar chart** — one bar per month, scaled across all selected categories so you can compare them directly.
+4. When 2+ categories have data, a **Combined total** bar shows the sum across all of them.
+
+**Saved groups** — save a selection for one-click reuse across devices:
+- Select categories → type a name → press Enter or click **Save group**.
+- Click a green group chip to restore that selection instantly.
+- Click **×** on a chip to delete the group.
 
 ---
 

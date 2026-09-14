@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import type { Category, CategoryBreakdown, SpendingActions } from '../types';
+import type { Category, CategoryBreakdown, SpendingActions, SpendingGroup } from '../types';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -23,10 +23,9 @@ function getPresetRange(preset: Preset): DateRange {
     const y = today.getFullYear();
     const m = today.getMonth(); // 0-based
 
-    const pad  = (n: number) => String(n).padStart(2, '0');
-    const ymd  = (year: number, month: number, day: number) =>
+    const pad     = (n: number) => String(n).padStart(2, '0');
+    const ymd     = (year: number, month: number, day: number) =>
         `${year}-${pad(month + 1)}-${pad(day)}`;
-    // Last day of any calendar month
     const lastDay = (year: number, month: number) =>
         new Date(year, month + 1, 0).getDate();
 
@@ -37,34 +36,26 @@ function getPresetRange(preset: Preset): DateRange {
         to:   ymd(y, m, lastDay(y, m)),
     };
 
-    if (preset === 'year')    return {
+    if (preset === 'year') return {
         from: `${y}-01-01`,
         to:   ymd(y, m, lastDay(y, m)),
     };
 
     if (preset === '1m') {
-        // previous full calendar month
         const pm = m === 0 ? 11 : m - 1;
         const py = m === 0 ? y - 1 : y;
-        return {
-            from: ymd(py, pm, 1),
-            to:   ymd(py, pm, lastDay(py, pm)),
-        };
+        return { from: ymd(py, pm, 1), to: ymd(py, pm, lastDay(py, pm)) };
     }
 
     if (preset === '3m') {
-        // 3 full calendar months ending last month
         const endM   = m === 0 ? 11 : m - 1;
         const endY   = m === 0 ? y - 1 : y;
         const startM = ((endM - 2) + 12) % 12;
         const startY = endM < 2 ? endY - 1 : endY;
-        return {
-            from: ymd(startY, startM, 1),
-            to:   ymd(endY,   endM,   lastDay(endY, endM)),
-        };
+        return { from: ymd(startY, startM, 1), to: ymd(endY, endM, lastDay(endY, endM)) };
     }
 
-    return { from: '', to: '' }; // custom — caller sets manually
+    return { from: '', to: '' }; // custom
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +68,6 @@ const INR = new Intl.NumberFormat('en-IN', {
 const fmt = (n: number) => INR.format(n);
 
 function fmtMonth(iso: string) {
-    // iso is "YYYY-MM-DD" (first day of month from date_trunc)
     const [y, m] = iso.split('-');
     return new Date(Number(y), Number(m) - 1).toLocaleString('default', {
         month: 'short', year: '2-digit',
@@ -85,7 +75,7 @@ function fmtMonth(iso: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Static preset definitions — outside component so never recreated on render
+// Static preset definitions
 // ---------------------------------------------------------------------------
 
 const PRESETS: { key: Preset; label: string }[] = [
@@ -102,33 +92,39 @@ const PRESETS: { key: Preset; label: string }[] = [
 // ---------------------------------------------------------------------------
 
 const STYLES = {
-    // Category chip
-    chipActive:   { background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: '1px solid transparent' }        as React.CSSProperties,
-    chipInactive: { background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.1)' } as React.CSSProperties,
+    chipActive:   { background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: '1px solid transparent' }              as React.CSSProperties,
+    chipInactive: { background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.1)' }     as React.CSSProperties,
 
-    // Preset buttons
-    presetActive:   { background: 'rgba(99,102,241,0.25)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.4)' } as React.CSSProperties,
+    presetActive:   { background: 'rgba(99,102,241,0.25)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.4)' }                   as React.CSSProperties,
     presetInactive: { background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.45)', border: '1px solid rgba(255,255,255,0.08)' } as React.CSSProperties,
 
-    // Card
-    card:   { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' } as React.CSSProperties,
+    // Saved group chip
+    groupChip:    { background: 'rgba(16,185,129,0.15)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }                     as React.CSSProperties,
+    groupDel:     { background: 'none', border: 'none', color: '#6ee7b7', cursor: 'pointer', padding: '0 0 0 4px', lineHeight: 1 }        as React.CSSProperties,
 
-    // Bar track
-    barTrack: { background: 'rgba(255,255,255,0.07)' } as React.CSSProperties,
-    barFill:  { background: 'linear-gradient(90deg,#6366f1,#8b5cf6)', minWidth: '2px' } as React.CSSProperties,
+    // Save input row
+    saveInput: {
+        background: 'rgba(255,255,255,0.06)', color: '#e2e8f0',
+        border: '1px solid rgba(255,255,255,0.12)', outline: 'none',
+    } as React.CSSProperties,
+    saveBtn: {
+        background: 'rgba(99,102,241,0.2)', color: '#a5b4fc',
+        border: '1px solid rgba(99,102,241,0.35)', cursor: 'pointer',
+    } as React.CSSProperties,
 
-    // Labels
-    sectionLabel: { color: 'rgba(255,255,255,0.35)' } as React.CSSProperties,
-    allTimeVal:   { color: '#a5b4fc' } as React.CSSProperties,
-    emptyState:   { color: 'rgba(255,255,255,0.3)' } as React.CSSProperties,
+    card:     { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' } as React.CSSProperties,
+    barTrack: { background: 'rgba(255,255,255,0.07)' }                                             as React.CSSProperties,
+    barFill:  { background: 'linear-gradient(90deg,#6366f1,#8b5cf6)', minWidth: '2px' }            as React.CSSProperties,
 
-    // Date inputs
+    sectionLabel: { color: 'rgba(255,255,255,0.35)' }  as React.CSSProperties,
+    allTimeVal:   { color: '#a5b4fc' }                  as React.CSSProperties,
+    emptyState:   { color: 'rgba(255,255,255,0.3)' }    as React.CSSProperties,
+
     dateInput: {
         background: 'rgba(255,255,255,0.06)', color: '#e2e8f0',
         border: '1px solid rgba(255,255,255,0.12)', outline: 'none',
     } as React.CSSProperties,
 
-    // Select-all link
     selectAllBtn: { color: '#818cf8', background: 'none', border: 'none', padding: 0, cursor: 'pointer' } as React.CSSProperties,
 } as const;
 
@@ -144,16 +140,23 @@ export default function SpendingView({ categories, actions }: Props) {
     const [breakdown,    setBreakdown]    = useState<CategoryBreakdown[]>([]);
     const [loading,      setLoading]      = useState(false);
 
-    // Derived date range
+    // Saved groups — loaded from server on mount
+    const [groups,     setGroups]     = useState<SpendingGroup[]>([]);
+    const [groupName,  setGroupName]  = useState('');
+
+    // ---------------------------------------------------------------------------
+    // Date range
+    // ---------------------------------------------------------------------------
+
     const dateRange = useMemo<DateRange>(() => {
         if (preset === 'custom') return { from: customFrom, to: customTo };
         return getPresetRange(preset);
     }, [preset, customFrom, customTo]);
 
-    // --- Fetch on every meaningful change ---
-    // Stable ref avoids including `actions` in the dep array (it's a new object
-    // on every render when spread from useMemo in Dashboard — but its inner
-    // function identity IS stable thanks to useCallback in useExpenseData).
+    // ---------------------------------------------------------------------------
+    // Fetch
+    // ---------------------------------------------------------------------------
+
     const actionsRef = useRef(actions);
     actionsRef.current = actions;
 
@@ -168,10 +171,8 @@ export default function SpendingView({ categories, actions }: Props) {
         } finally {
             setLoading(false);
         }
-    }, []); // no deps — actionsRef is always current
+    }, []);
 
-    // Re-fetch whenever selection or date range changes.
-    // Debounce custom date typing to avoid firing on every keystroke.
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEffect(() => {
         const fire = () => doFetch(selectedIds, dateRange);
@@ -184,7 +185,7 @@ export default function SpendingView({ categories, actions }: Props) {
     }, [selectedIds, dateRange, preset, doFetch]);
 
     // ---------------------------------------------------------------------------
-    // Handlers
+    // Category handlers
     // ---------------------------------------------------------------------------
 
     const toggleCategory = useCallback((id: number) => {
@@ -207,12 +208,41 @@ export default function SpendingView({ categories, actions }: Props) {
     }, []);
 
     // ---------------------------------------------------------------------------
-    // Derived: combined grand total + max monthly (for bar scaling)
+    // Group handlers
+    // ---------------------------------------------------------------------------
+
+    // Load groups from server on mount
+    useEffect(() => {
+        actionsRef.current.fetchGroups().then(setGroups);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const handleSaveGroup = useCallback(async () => {
+        const name = groupName.trim();
+        if (!name || selectedIds.size === 0) return;
+        const created = await actionsRef.current.saveGroup(name, Array.from(selectedIds));
+        if (created) {
+            setGroups(prev => [...prev, created]);
+            setGroupName('');
+        }
+    }, [groupName, selectedIds]);
+
+    const applyGroup = useCallback((group: SpendingGroup) => {
+        const valid = new Set(categories.map(c => c.id));
+        setSelectedIds(new Set(group.categoryIds.filter(id => valid.has(id))));
+    }, [categories]);
+
+    const handleDeleteGroup = useCallback(async (id: number) => {
+        await actionsRef.current.deleteGroup(id);
+        setGroups(prev => prev.filter(g => g.id !== id));
+    }, []);
+
+    // ---------------------------------------------------------------------------
+    // Derived
     // ---------------------------------------------------------------------------
 
     const { grandTotal, maxMonthly } = useMemo(() => {
-        let grand = 0;
-        let maxM  = 0;
+        let grand = 0, maxM = 0;
         for (const b of breakdown) {
             grand += b.allTimeTotal;
             for (const mo of b.monthly) if (mo.total > maxM) maxM = mo.total;
@@ -220,11 +250,11 @@ export default function SpendingView({ categories, actions }: Props) {
         return { grandTotal: grand, maxMonthly: maxM || 1 };
     }, [breakdown]);
 
+    const allSelected = categories.length > 0 && selectedIds.size === categories.length;
+
     // ---------------------------------------------------------------------------
     // Render
     // ---------------------------------------------------------------------------
-
-    const allSelected = categories.length > 0 && selectedIds.size === categories.length;
 
     return (
         <div className="flex flex-col gap-6">
@@ -237,6 +267,31 @@ export default function SpendingView({ categories, actions }: Props) {
                 </p>
             </div>
 
+            {/* ---- Saved groups ---- */}
+            {groups.length > 0 && (
+                <section className="flex flex-col gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider" style={STYLES.sectionLabel}>
+                        Saved groups
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                        {groups.map(g => (
+                            <div key={g.id} className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold" style={STYLES.groupChip}>
+                                <button
+                                    className="font-bold"
+                                    style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0 }}
+                                    onClick={() => applyGroup(g)}
+                                    title={`Select: ${g.categoryIds.length} categories`}
+                                >
+                                    {g.name}
+                                    <span style={{ opacity: 0.6, marginLeft: 4 }}>({g.categoryIds.length})</span>
+                                </button>
+                                <button style={STYLES.groupDel} onClick={() => handleDeleteGroup(g.id)} title="Remove group">×</button>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+            )}
+
             {/* ---- Category chips ---- */}
             <section className="flex flex-col gap-3">
                 <div className="flex items-center justify-between">
@@ -245,14 +300,10 @@ export default function SpendingView({ categories, actions }: Props) {
                     </span>
                     <div className="flex gap-3 text-xs font-semibold">
                         {!allSelected && (
-                            <button style={STYLES.selectAllBtn} onClick={selectAll}>
-                                Select all
-                            </button>
+                            <button style={STYLES.selectAllBtn} onClick={selectAll}>Select all</button>
                         )}
                         {selectedIds.size > 0 && (
-                            <button style={STYLES.selectAllBtn} onClick={clearAll}>
-                                Clear
-                            </button>
+                            <button style={STYLES.selectAllBtn} onClick={clearAll}>Clear</button>
                         )}
                     </div>
                 </div>
@@ -274,6 +325,30 @@ export default function SpendingView({ categories, actions }: Props) {
                                 </button>
                             );
                         })}
+                    </div>
+                )}
+
+                {/* Save current selection as a group */}
+                {selectedIds.size > 0 && (
+                    <div className="flex items-center gap-2 mt-1">
+                        <input
+                            type="text"
+                            placeholder="Group name…"
+                            value={groupName}
+                            maxLength={32}
+                            onChange={e => setGroupName(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleSaveGroup()}
+                            className="rounded-lg px-3 py-1.5 text-xs w-40"
+                            style={STYLES.saveInput}
+                        />
+                        <button
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                            style={STYLES.saveBtn}
+                            onClick={handleSaveGroup}
+                            disabled={!groupName.trim()}
+                        >
+                            Save group
+                        </button>
                     </div>
                 )}
             </section>
@@ -330,7 +405,7 @@ export default function SpendingView({ categories, actions }: Props) {
                             Combined total
                         </span>
                         <span className="text-xs" style={STYLES.sectionLabel}>
-                            {breakdown.length} categories selected
+                            {breakdown.length} categories
                         </span>
                     </div>
                     <span className="text-2xl font-black" style={STYLES.allTimeVal}>
@@ -362,7 +437,6 @@ export default function SpendingView({ categories, actions }: Props) {
                 {!loading && breakdown.map(cat => (
                     <div key={cat.categoryId} className="rounded-2xl p-5 flex flex-col gap-4" style={STYLES.card}>
 
-                        {/* Category header */}
                         <div className="flex items-center justify-between flex-wrap gap-2">
                             <h3 className="font-black text-white text-base">{cat.categoryName}</h3>
                             <div className="flex flex-col items-end">
@@ -373,7 +447,6 @@ export default function SpendingView({ categories, actions }: Props) {
                             </div>
                         </div>
 
-                        {/* Monthly bars */}
                         {cat.monthly.length === 0 ? (
                             <p className="text-xs" style={STYLES.emptyState}>No monthly data available.</p>
                         ) : (
@@ -386,16 +459,11 @@ export default function SpendingView({ categories, actions }: Props) {
                                         const pct = Math.max(2, (mo.total / maxMonthly) * 100);
                                         return (
                                             <div key={mo.month} className="flex items-center gap-3">
-                                                <span className="text-xs font-mono w-14 shrink-0 text-right"
-                                                      style={STYLES.sectionLabel}>
+                                                <span className="text-xs font-mono w-14 shrink-0 text-right" style={STYLES.sectionLabel}>
                                                     {fmtMonth(mo.month)}
                                                 </span>
-                                                <div className="flex-1 h-5 rounded-full overflow-hidden"
-                                                     style={STYLES.barTrack}>
-                                                    <div
-                                                        className="h-full rounded-full"
-                                                        style={{ ...STYLES.barFill, width: `${pct}%` }}
-                                                    />
+                                                <div className="flex-1 h-5 rounded-full overflow-hidden" style={STYLES.barTrack}>
+                                                    <div className="h-full rounded-full" style={{ ...STYLES.barFill, width: `${pct}%` }} />
                                                 </div>
                                                 <span className="text-xs font-bold w-24 text-right text-white shrink-0">
                                                     {fmt(mo.total)}

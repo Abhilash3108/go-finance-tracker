@@ -26,7 +26,7 @@ Open **https://localhost** (accept the self-signed cert warning).
 | 🏷️ Categories | Create / rename / delete categories |
 | 📋 My Expenses | Filter, inline-edit, bulk-delete |
 | 🔁 Recurring | Monthly templates → dump to expenses in one click |
-| 🔍 Spending | Multi-category comparison: monthly bars + all-time totals |
+| 🔍 Spending | Multi-category comparison: monthly bars + all-time totals + saved groups (synced across devices) |
 
 **Security highlights**
 - 15-min access token (localStorage) + 7-day refresh token (`__Host-refresh` HttpOnly cookie)

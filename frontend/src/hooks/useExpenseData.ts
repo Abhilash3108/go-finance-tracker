@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import type { Expense, Category, CategoryPercentage, MonthlySummary, RecurringExpense, RecurringSummary, CategoryBreakdown } from '../types';
+import type { Expense, Category, CategoryPercentage, MonthlySummary, RecurringExpense, RecurringSummary, CategoryBreakdown, SpendingGroup } from '../types';
 import { apiFetch } from '../api';
 
 export interface ExpenseData {
@@ -14,6 +14,9 @@ export interface ExpenseData {
     fetchCategoryPercent:     (year: string, month: string) => Promise<CategoryPercentage[]>;
     fetchMonthlyTrend:        (year: string, month: string) => Promise<MonthlySummary[]>;
     fetchCategoryBreakdown:   (categoryIds: number[], from: string, to: string) => Promise<CategoryBreakdown[]>;
+    fetchGroups:              ()                                                 => Promise<SpendingGroup[]>;
+    saveGroup:                (name: string, categoryIds: number[])              => Promise<SpendingGroup | null>;
+    deleteGroup:              (id: number)                                       => Promise<void>;
     fetchExport:              (from: string, to: string) => Promise<void>;
 }
 
@@ -127,6 +130,33 @@ export function useExpenseData(): ExpenseData {
         }
     }, []);
 
+    const fetchGroups = useCallback(async (): Promise<SpendingGroup[]> => {
+        try {
+            const res = await apiFetch('/api/spending-groups');
+            if (!res.ok) return [];
+            return res.json();
+        } catch { return []; }
+    }, []);
+
+    const saveGroup = useCallback(async (
+        name: string, categoryIds: number[],
+    ): Promise<SpendingGroup | null> => {
+        try {
+            const res = await apiFetch('/api/spending-groups', {
+                method: 'POST',
+                body: JSON.stringify({ name, categoryIds }),
+            });
+            if (!res.ok) return null;
+            return res.json();
+        } catch { return null; }
+    }, []);
+
+    const deleteGroup = useCallback(async (id: number): Promise<void> => {
+        try {
+            await apiFetch(`/api/spending-groups/delete?id=${id}`, { method: 'DELETE' });
+        } catch { /* ignore */ }
+    }, []);
+
     // Triggers a CSV download for the given date range.
     // 'from' / 'to' are "YYYY-MM-DD" strings, or '' to omit the bound.
     const fetchExport = useCallback(async (from: string, to: string): Promise<void> => {
@@ -154,6 +184,7 @@ export function useExpenseData(): ExpenseData {
     return {
         expenses, categories, availableYears, recurringItems, recurringSummary,
         fetchData, fetchRecurring, fetchRecurringSummary,
-        fetchCategoryPercent, fetchMonthlyTrend, fetchCategoryBreakdown, fetchExport,
+        fetchCategoryPercent, fetchMonthlyTrend, fetchCategoryBreakdown,
+        fetchGroups, saveGroup, deleteGroup, fetchExport,
     };
 }

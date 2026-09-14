@@ -33,13 +33,18 @@ export interface CategoryBreakdown {
     monthly:      CategoryMonthly[];
 }
 
+export interface SpendingGroup {
+    id:          number;
+    name:        string;
+    categoryIds: number[];
+}
+
 /** Actions available to the SpendingView. */
 export interface SpendingActions {
-    fetchCategoryBreakdown: (
-        categoryIds: number[],
-        from:        string,
-        to:          string,
-    ) => Promise<CategoryBreakdown[]>;
+    fetchCategoryBreakdown: (categoryIds: number[], from: string, to: string) => Promise<CategoryBreakdown[]>;
+    fetchGroups:            ()                                                 => Promise<SpendingGroup[]>;
+    saveGroup:              (name: string, categoryIds: number[])              => Promise<SpendingGroup | null>;
+    deleteGroup:            (id: number)                                       => Promise<void>;
 }
 
 export type TabName = 'add' | 'categories' | 'viewer' | 'dashboard' | 'recurring' | 'spending';

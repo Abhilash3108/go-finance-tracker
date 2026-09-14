@@ -69,6 +69,13 @@ type CategoryBreakdown struct {
 	Monthly      []CategoryMonthly `json:"monthly"`
 }
 
+// SpendingGroup is a named set of category IDs saved by the user.
+type SpendingGroup struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	CategoryIDs []int  `json:"categoryIds"`
+}
+
 type Result struct {
 	Year         int     `json:"year"`
 	CategoryName string  `json:"categoryName"`

@@ -103,7 +103,7 @@ Views never import `apiFetch`. All fetch callbacks come from `useExpenseData` an
 
 ```bash
 # Create
-touch backend/migrations/004_my_change.up.sql
+touch backend/migrations/005_my_change.up.sql
 
 # Apply (runs automatically on next backend start)
 docker compose up --build backend -d
