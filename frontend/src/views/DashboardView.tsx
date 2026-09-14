@@ -165,8 +165,8 @@ export default function DashboardView({
     fetchExport,
 }: Props) {
     const [categoryFilter, setCategoryFilter] = useState('all');
-    const [year,    setYear]    = useState('all');
-    const [month,   setMonth]   = useState('all');
+    const [year,    setYear]    = useState(() => String(new Date().getFullYear()));
+    const [month,   setMonth]   = useState(() => String(new Date().getMonth() + 1));
 
     const [pctData,   setPctData]   = useState<CategoryPercentage[]>([]);
     const [trendData, setTrendData] = useState<MonthlySummary[]>([]);
