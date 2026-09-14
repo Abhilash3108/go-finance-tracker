@@ -164,13 +164,17 @@ export default function SpendingView({ categories, actions }: Props) {
     }, []);
 
     // ---------------------------------------------------------------------------
-    // Derived: max monthly total across all returned data (for bar scaling)
+    // Derived: combined grand total + max monthly (for bar scaling)
     // ---------------------------------------------------------------------------
 
-    const maxMonthly = useMemo(() => {
-        let m = 0;
-        for (const b of breakdown) for (const mo of b.monthly) if (mo.total > m) m = mo.total;
-        return m || 1;
+    const { grandTotal, maxMonthly } = useMemo(() => {
+        let grand = 0;
+        let maxM  = 0;
+        for (const b of breakdown) {
+            grand += b.allTimeTotal;
+            for (const mo of b.monthly) if (mo.total > maxM) maxM = mo.total;
+        }
+        return { grandTotal: grand, maxMonthly: maxM || 1 };
     }, [breakdown]);
 
     // ---------------------------------------------------------------------------
@@ -282,6 +286,23 @@ export default function SpendingView({ categories, actions }: Props) {
                     </div>
                 )}
             </section>
+
+            {/* ---- Grand total bar ---- */}
+            {!loading && breakdown.length > 1 && (
+                <div className="rounded-2xl px-5 py-4 flex items-center justify-between gap-4" style={STYLES.card}>
+                    <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-bold uppercase tracking-wider" style={STYLES.sectionLabel}>
+                            Combined total
+                        </span>
+                        <span className="text-xs" style={STYLES.sectionLabel}>
+                            {breakdown.length} categories selected
+                        </span>
+                    </div>
+                    <span className="text-2xl font-black" style={STYLES.allTimeVal}>
+                        {fmt(grandTotal)}
+                    </span>
+                </div>
+            )}
 
             {/* ---- Results ---- */}
             <section className="flex flex-col gap-4">
