@@ -14,26 +14,56 @@ interface Props {
 // Date-range presets
 // ---------------------------------------------------------------------------
 
-type Preset = 'all' | 'year' | '3m' | '1m' | 'custom';
+type Preset = 'all' | 'year' | '3m' | '1m' | 'current' | 'custom';
 
 interface DateRange { from: string; to: string; }
 
 function getPresetRange(preset: Preset): DateRange {
     const today = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const fmt = (d: Date) =>
-        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const y = today.getFullYear();
+    const m = today.getMonth(); // 0-based
 
-    if (preset === 'all')  return { from: '', to: '' };
-    if (preset === 'year') return { from: `${today.getFullYear()}-01-01`, to: fmt(today) };
-    if (preset === '3m') {
-        const d = new Date(today); d.setMonth(d.getMonth() - 3);
-        return { from: fmt(d), to: fmt(today) };
-    }
+    const pad  = (n: number) => String(n).padStart(2, '0');
+    const ymd  = (year: number, month: number, day: number) =>
+        `${year}-${pad(month + 1)}-${pad(day)}`;
+    // Last day of any calendar month
+    const lastDay = (year: number, month: number) =>
+        new Date(year, month + 1, 0).getDate();
+
+    if (preset === 'all')     return { from: '', to: '' };
+
+    if (preset === 'current') return {
+        from: ymd(y, m, 1),
+        to:   ymd(y, m, lastDay(y, m)),
+    };
+
+    if (preset === 'year')    return {
+        from: `${y}-01-01`,
+        to:   ymd(y, m, lastDay(y, m)),
+    };
+
     if (preset === '1m') {
-        const d = new Date(today); d.setMonth(d.getMonth() - 1);
-        return { from: fmt(d), to: fmt(today) };
+        // previous full calendar month
+        const pm = m === 0 ? 11 : m - 1;
+        const py = m === 0 ? y - 1 : y;
+        return {
+            from: ymd(py, pm, 1),
+            to:   ymd(py, pm, lastDay(py, pm)),
+        };
     }
+
+    if (preset === '3m') {
+        // 3 full calendar months ending last month
+        const endM   = m === 0 ? 11 : m - 1;
+        const endY   = m === 0 ? y - 1 : y;
+        const startM = ((endM - 2) + 12) % 12;
+        const startY = endM < 2 ? endY - 1 : endY;
+        return {
+            from: ymd(startY, startM, 1),
+            to:   ymd(endY,   endM,   lastDay(endY, endM)),
+        };
+    }
+
     return { from: '', to: '' }; // custom — caller sets manually
 }
 
@@ -53,6 +83,19 @@ function fmtMonth(iso: string) {
         month: 'short', year: '2-digit',
     });
 }
+
+// ---------------------------------------------------------------------------
+// Static preset definitions — outside component so never recreated on render
+// ---------------------------------------------------------------------------
+
+const PRESETS: { key: Preset; label: string }[] = [
+    { key: 'all',     label: 'All time' },
+    { key: 'current', label: 'This month' },
+    { key: 'year',    label: 'This year' },
+    { key: '3m',      label: 'Last 3 months' },
+    { key: '1m',      label: 'Last month' },
+    { key: 'custom',  label: 'Custom' },
+];
 
 // ---------------------------------------------------------------------------
 // Static styles
@@ -180,14 +223,6 @@ export default function SpendingView({ categories, actions }: Props) {
     // ---------------------------------------------------------------------------
     // Render
     // ---------------------------------------------------------------------------
-
-    const PRESETS: { key: Preset; label: string }[] = [
-        { key: 'all',    label: 'All time' },
-        { key: 'year',   label: 'This year' },
-        { key: '3m',     label: 'Last 3 months' },
-        { key: '1m',     label: 'Last month' },
-        { key: 'custom', label: 'Custom' },
-    ];
 
     const allSelected = categories.length > 0 && selectedIds.size === categories.length;
 
