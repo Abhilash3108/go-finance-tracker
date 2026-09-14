@@ -243,6 +243,11 @@ export default function SpendingView({ categories, actions }: Props) {
     // Derived
     // ---------------------------------------------------------------------------
 
+    // Collapse all cards whenever new breakdown data arrives
+    useEffect(() => {
+        setCollapsedIds(new Set(breakdown.map(b => b.categoryId)));
+    }, [breakdown]);
+
     const { grandTotal, maxMonthly } = useMemo(() => {
         let grand = 0, maxM = 0;
         for (const b of breakdown) {
@@ -255,7 +260,7 @@ export default function SpendingView({ categories, actions }: Props) {
     const allSelected = categories.length > 0 && selectedIds.size === categories.length;
 
     // Collapse state — Set of categoryIds whose monthly breakdown is hidden.
-    // Starts empty (all expanded). Toggled per card header click.
+    // Auto-collapses all cards whenever fresh breakdown data arrives.
     const [collapsedIds, setCollapsedIds] = useState<Set<number>>(new Set());
 
     const toggleCollapse = useCallback((id: number) => {
